@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id           String     @id @default(cuid())
+  freelancerId String     @unique
+  name         String
+  createdAt    DateTime   @default(now())
+  snapshots    Snapshot[]
+  proposals    Proposal[]
+}
+
+model Snapshot {
+  id                            String   @id @default(cuid())
+  accountId                     String
+  account                       Account  @relation(fields: [accountId], references: [id])
+  capturedAt                    DateTime
+  startTimestamp                String?
+  endTimestamp                  String?
+  jss                           Float?
+  connectsBalance               Int?
+  proposalsSentBoosted          Int      @default(0)
+  proposalsSentOrganic          Int      @default(0)
+  proposalsViewedBoosted        Int      @default(0)
+  proposalsViewedOrganic        Int      @default(0)
+  proposalsInterviewedBoosted   Int      @default(0)
+  proposalsInterviewedOrganic   Int      @default(0)
+  proposalsHiredBoosted         Int      @default(0)
+  proposalsHiredOrganic         Int      @default(0)
+  seriesJson                    String?
+  createdAt                     DateTime @default(now())
+
+  @@index([accountId, capturedAt])
+}
+
+model Proposal {
+  id          String   @id @default(cuid())
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id])
+  jobTitle    String?
+  jobCategory String?
+  status      String?
+  boosted     Boolean  @default(false)
+  connectsSpent Int?
+  submittedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([accountId])
+}

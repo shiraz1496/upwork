@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Upwork Tracker",
+  "version": "1.0.0",
+  "description": "Tracks proposal stats, JSS, and connect spend across all your Upwork accounts.",
+  "permissions": ["storage", "notifications", "alarms"],
+  "host_permissions": [
+    "https://www.upwork.com/*",
+    "http://localhost:3000/*",
+    "https://your-vercel-app.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [{
+    "matches": ["https://www.upwork.com/nx/my-stats/*"],
+    "js": ["src/content.js"],
+    "run_at": "document_start"
+  }],
+  "web_accessible_resources": [{
+    "resources": ["src/injected.js"],
+    "matches": ["https://www.upwork.com/*"]
+  }],
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_title": "Upwork Tracker"
+  }
+}
