@@ -12,7 +12,7 @@
     "https://*.vercel.app/*"
   ],
   "background": {
-    "service_worker": "src/background.js"
+    "scripts": ["src/background.js"]
   },
   "content_scripts": [{
     "matches": ["https://www.upwork.com/*"],
@@ -26,5 +26,10 @@
   "action": {
     "default_popup": "src/popup.html",
     "default_title": "Upwork Tracker"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "upwork-tracker@extension"
+    }
   }
 }

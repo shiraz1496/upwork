@@ -7,12 +7,46 @@ datasource db {
 }
 
 model Account {
-  id           String     @id @default(cuid())
-  freelancerId String     @unique
-  name         String
-  createdAt    DateTime   @default(now())
-  snapshots    Snapshot[]
-  proposals    Proposal[]
+  id              String     @id @default(cuid())
+  freelancerId    String     @unique
+  name            String
+  jss             Float?
+  connectsBalance Int?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  snapshots       Snapshot[]
+  proposals       Proposal[]
+  jobs            Job[]
+  alerts          Alert[]
+}
+
+model Alert {
+  id                 String    @id @default(cuid())
+  accountId          String
+  account            Account   @relation(fields: [accountId], references: [id])
+  type               String    // "message"
+  title              String
+  senderName         String?
+  preview            String?
+  url                String?
+  roomId             String?
+  jobTitle           String?
+  date               String?
+  freelancerReplied  Boolean   @default(false)
+  lastMessageSender  String?
+  lastMessageText    String?
+  lastMessageTime    String?
+  needsAttention     Boolean   @default(false)
+  isUnread           Boolean   @default(false)
+  read               Boolean   @default(false)
+  replied            Boolean   @default(false)
+  notifiedAt         DateTime  @default(now())
+  remindedAt         DateTime?
+  createdAt          DateTime  @default(now())
+
+  @@index([accountId])
+  @@index([type])
+  @@index([roomId])
 }
 
 model Snapshot {
@@ -38,17 +72,90 @@ model Snapshot {
   @@index([accountId, capturedAt])
 }
 
+model Job {
+  id                String   @id @default(cuid())
+  accountId         String
+  account           Account  @relation(fields: [accountId], references: [id])
+  url               String?
+  title             String
+  description       String?  @db.Text
+  budget            String?
+  jobType           String?
+  category          String?
+  skills            String[]
+  experienceLevel   String?
+  projectType       String?
+  contractToHire    Boolean  @default(false)
+  clientPaymentVerified Boolean  @default(false)
+  clientPhoneVerified   Boolean  @default(false)
+  clientRating          Float?
+  clientReviewScore     String?
+  clientReviews         Int?
+  clientSpent           String?
+  clientCountry         String?
+  clientCity            String?
+  clientHires           Int?
+  clientActiveHires     Int?
+  clientHireRate        Int?
+  clientOpenJobs        Int?
+  clientJobsPosted      Int?
+  clientMemberSince     String?
+  clientIndustry        String?
+  clientCompanySize     String?
+  jobLocation           String?
+  connectsRequired      Int?
+  postedTime        String?
+  viewedAt          DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  @@unique([accountId, url])
+  @@index([accountId])
+}
+
 model Proposal {
-  id          String   @id @default(cuid())
-  accountId   String
-  account     Account  @relation(fields: [accountId], references: [id])
-  jobTitle    String?
-  jobCategory String?
-  status      String?
-  boosted     Boolean  @default(false)
-  connectsSpent Int?
-  submittedAt DateTime?
-  createdAt   DateTime @default(now())
+  id             String    @id @default(cuid())
+  accountId      String
+  account        Account   @relation(fields: [accountId], references: [id])
+  jobTitle       String?
+  jobUrl         String?
+  jobCategory    String?
+  status         String?
+  section        String?
+  boosted        Boolean   @default(false)
+  boostStatus    String?
+  viewedByClient Boolean   @default(false)
+  coverLetter    String?   @db.Text
+  clientName     String?
+  clientCountry  String?
+  connectsSpent  Int?
+  submittedAt    DateTime?
+  profileUsed    String?
+  proposedRate       String?
+  receivedRate       String?
+  rateIncrease       String?
+  bidConnects        Int?
+  jobBudget          String?
+  jobHoursPerWeek    String?
+  jobDuration        String?
+  jobExperienceLevel String?
+  jobDescription     String?   @db.Text
+  jobSkills          String[]
+  jobPostedDate      String?
+  clientRating       Float?
+  clientReviews      Int?
+  clientReviewScore  String?
+  clientCity         String?
+  clientJobsPosted   Int?
+  clientHireRate     Int?
+  clientOpenJobs     Int?
+  clientTotalSpent   String?
+  clientHires        Int?
+  clientActiveHires  Int?
+  clientAvgRate      String?
+  clientTotalHours   String?
+  clientMemberSince  String?
+  clientPaymentVerified Boolean @default(false)
+  createdAt      DateTime  @default(now())
 
   @@index([accountId])
 }
