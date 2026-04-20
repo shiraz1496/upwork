@@ -9,7 +9,9 @@
     "http://localhost:3000/*",
     "https://*.ngrok-free.app/*",
     "https://*.ngrok.io/*",
-    "https://*.vercel.app/*"
+    "https://*.vercel.app/*",
+    "https://482b-2407-d000-1a-3ee7-b012-6c0-3cf3-774c.ngrok-free.app/*",
+    "https://upwork-tracking-tool.vercel.app/*"
   ],
   "background": {
     "service_worker": "src/background.js"
