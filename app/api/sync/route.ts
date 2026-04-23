@@ -8,6 +8,7 @@ const syncSchema = z.object({
   capturedAt: z.string().datetime().optional(),
   startTimestamp: z.string().optional().nullable(),
   endTimestamp: z.string().optional().nullable(),
+  range: z.string().optional().nullable(),
   jss: z.number().min(0).max(100).optional().nullable(),
   connectsBalance: z.number().int().min(0).optional().nullable(),
   totals: z.object({
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { freelancerId, accountName, capturedAt, startTimestamp, endTimestamp, jss, connectsBalance, totals, series } = parsed.data;
+    const { freelancerId, accountName, capturedAt, startTimestamp, endTimestamp, range, jss, connectsBalance, totals, series } = parsed.data;
 
     let account = await prisma.account.findUnique({ where: { freelancerId } });
     if (account) {
@@ -66,6 +67,7 @@ export async function POST(req: NextRequest) {
         capturedAt: capturedAt ? new Date(capturedAt) : new Date(),
         startTimestamp: startTimestamp ?? null,
         endTimestamp: endTimestamp ?? null,
+        range: range ?? null,
         jss: jss ?? null,
         connectsBalance: connectsBalance ?? null,
         proposalsSentBoosted: totals.proposals_sent_boosted,

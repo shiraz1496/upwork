@@ -5,7 +5,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
-      freelancerId, title, url, coverLetter, viewedByClient, clientName, clientCountry,
+      freelancerId, title, url, coverLetter, clientNote, viewedByClient, clientName, clientCountry,
       proposedRate, receivedRate, rateIncrease, bidConnects,
       jobBudget, jobHoursPerWeek, jobDuration, jobExperienceLevel, jobDescription, jobSkills,
       jobPostedDate, jobCategory, profileUsed,
@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
       clientJobsPosted, clientHireRate, clientOpenJobs, clientTotalSpent,
       clientHires, clientActiveHires, clientAvgRate, clientTotalHours,
       clientMemberSince, clientPaymentVerified,
+      section, status, submittedAt, submittedViaExtension,
     } = body;
 
     if (!freelancerId) {
@@ -69,7 +70,12 @@ export async function POST(req: NextRequest) {
 
     // Build the detail data object with all new fields
     const detailData = {
+      ...(section ? { section } : {}),
+      ...(status ? { status } : {}),
+      ...(submittedAt ? { submittedAt: new Date(submittedAt) } : {}),
+      ...(submittedViaExtension != null ? { submittedViaExtension } : {}),
       ...(coverLetter ? { coverLetter } : {}),
+      ...(clientNote ? { clientNote } : {}),
       ...(viewedByClient != null ? { viewedByClient } : {}),
       ...(clientName ? { clientName } : {}),
       ...(clientCountry ? { clientCountry } : {}),
@@ -120,9 +126,11 @@ export async function POST(req: NextRequest) {
           jobTitle: title || null,
           jobUrl: jobUrl || null,
           coverLetter: coverLetter || null,
+          clientNote: clientNote || null,
           viewedByClient: viewedByClient ?? false,
           clientName: clientName || null,
           clientCountry: clientCountry || null,
+          submittedViaExtension: submittedViaExtension ?? false,
           ...detailData,
         },
       });

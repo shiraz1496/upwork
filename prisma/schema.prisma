@@ -56,6 +56,7 @@ model Snapshot {
   capturedAt                    DateTime
   startTimestamp                String?
   endTimestamp                  String?
+  range                         String?
   jss                           Float?
   connectsBalance               Int?
   proposalsSentBoosted          Int      @default(0)
@@ -125,10 +126,12 @@ model Proposal {
   boostStatus    String?
   viewedByClient Boolean   @default(false)
   coverLetter    String?   @db.Text
+  clientNote     String?   @db.Text
   clientName     String?
   clientCountry  String?
   connectsSpent  Int?
   submittedAt    DateTime?
+  submittedViaExtension Boolean @default(false)
   profileUsed    String?
   proposedRate       String?
   receivedRate       String?

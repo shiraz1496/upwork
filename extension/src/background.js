@@ -1,4 +1,4 @@
-const DEFAULT_BACKEND_URL = "https://upwork-tracking-tool.vercel.app";
+const DEFAULT_BACKEND_URL = "http://localhost:3000";
 
 console.log("[UT BG] Service worker started v5");
 
@@ -137,6 +137,8 @@ async function handleMessage(message) {
       return handleScrapedProposals(message.payload);
     case "SCRAPED_PROPOSAL_DETAIL":
       return handleScrapedProposalDetail(message.payload);
+    case "SCRAPED_APPLY_SUBMIT":
+      return handleScrapedApplySubmit(message.payload);
     case "SCRAPED_MESSAGES":
       return handleScrapedMessages(message.payload);
     case "ANALYZE_COVER_LETTER":
@@ -199,7 +201,7 @@ async function handleAccountDetected(payload) {
 // Merges profile data with the canonical account
 // ════════════════════════════════════════════════════
 async function handleScrapedAccount(payload) {
-  const { name, jss, connectsBalance } = payload;
+  const { userId, name, jss, connectsBalance } = payload;
 
   // ALWAYS use the canonical userId, not the profile URL ID
   const fid = await getFreelancerId();
@@ -214,6 +216,11 @@ async function handleScrapedAccount(payload) {
     return { ok: false, note: "No canonical userId yet — visit any Upwork page first" };
   }
 
+  if (userId && userId !== fid) {
+    console.log("[UT BG] REJECTED: profile data from", userId, "does not match canonical", fid);
+    return { ok: false, note: "Profile does not belong to logged-in user" };
+  }
+
   return syncToBackend("/api/sync/account", {
     freelancerId: fid,
     name: accountName || fid,
@@ -226,18 +233,19 @@ async function handleScrapedAccount(payload) {
 // SCRAPED STATS (from /nx/my-stats)
 // ════════════════════════════════════════════════════
 async function handleScrapedStats(payload) {
-  const { metrics, jss, connectsBalance, capturedAt } = payload;
+  const { metrics, jss, connectsBalance, capturedAt, range } = payload;
   const fid = await getFreelancerId();
   const name = await getAccountName();
 
   if (!fid) return { ok: false, note: "No userId — visit any Upwork page first" };
 
-  console.log("[UT BG] Stats → fid:", fid, "metrics:", JSON.stringify(metrics));
+  console.log("[UT BG] Stats → fid:", fid, "range:", range, "metrics:", JSON.stringify(metrics));
 
   return syncToBackend("/api/sync", {
     freelancerId: fid,
     accountName: name,
     capturedAt,
+    range: range ?? null,
     jss: jss ?? null,
     connectsBalance: connectsBalance ?? null,
     totals: {
@@ -299,6 +307,17 @@ async function handleScrapedProposalDetail(payload) {
   if (!fid) return { ok: false, note: "No userId" };
   console.log("[UT BG] Proposal detail:", payload.title, "viewed:", payload.viewedByClient);
   return syncToBackend("/api/sync/proposal-detail", { freelancerId: fid, ...payload });
+}
+
+async function handleScrapedApplySubmit(payload) {
+  const fid = await getFreelancerId();
+  if (!fid) return { ok: false, note: "No userId" };
+  console.log("[UT BG] Apply submit:", payload.title, "cover len:", payload.coverLetter?.length);
+  return syncToBackend("/api/sync/proposal-detail", {
+    freelancerId: fid,
+    ...payload,
+    submittedAt: payload.capturedAt,
+  });
 }
 
 // ════════════════════════════════════════════════════

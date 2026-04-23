@@ -14,6 +14,7 @@ interface SnapshotSummary {
   capturedAt: string;
   startTimestamp: string | null;
   endTimestamp: string | null;
+  range: string | null;
   jss: number | null;
   connectsBalance: number | null;
   sent: number;
@@ -74,6 +75,8 @@ interface ProposalData {
   boostStatus: string | null;
   viewedByClient: boolean;
   coverLetter: string | null;
+  clientNote: string | null;
+  submittedViaExtension: boolean;
   clientName: string | null;
   clientCountry: string | null;
   connectsSpent: number | null;
@@ -176,16 +179,52 @@ function StarRating({ rating }: { rating: number }) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function StatCard({ label, value, sub, color }: {
+// ─── Inline icons (no dep) ───
+const iconProps = {
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+  className: "w-[18px] h-[18px] shrink-0",
+};
+const IconHome = () => (<svg {...iconProps}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>);
+const IconBriefcase = () => (<svg {...iconProps}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>);
+const IconFile = () => (<svg {...iconProps}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>);
+const IconBell = () => (<svg {...iconProps}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>);
+const IconCamera = () => (<svg {...iconProps}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>);
+const IconSend = () => (<svg {...iconProps}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>);
+const IconRefresh = () => (<svg {...iconProps} className="w-4 h-4 shrink-0"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>);
+const IconArrowUp = () => (<svg {...iconProps} className="w-3 h-3 shrink-0"><polyline points="18 15 12 9 6 15"/></svg>);
+const IconArrowDown = () => (<svg {...iconProps} className="w-3 h-3 shrink-0"><polyline points="6 9 12 15 18 9"/></svg>);
+
+function StatCard({ label, value, sub, color, delta }: {
   label: string;
   value: string | number;
   sub?: string;
   color?: string;
+  delta?: number | null;
 }) {
+  const up = delta != null && delta > 0;
+  const down = delta != null && delta < 0;
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-1 shadow-sm">
-      <span className="text-xs text-gray-500 uppercase tracking-wider font-medium">{label}</span>
-      <span className="text-2xl font-bold text-gray-900" style={{ color: color || "#111827" }}>{value}</span>
+    <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-2 shadow-sm hover:shadow-md transition-shadow">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">{label}</span>
+        {delta != null && (
+          <span className={`inline-flex items-center gap-0.5 text-[11px] font-medium px-1.5 py-0.5 rounded ${
+            up ? "bg-green-50 text-green-700" :
+            down ? "bg-rose-50 text-rose-700" :
+            "bg-gray-50 text-gray-500"
+          }`}>
+            {up && <IconArrowUp />}
+            {down && <IconArrowDown />}
+            {Math.abs(delta)}%
+          </span>
+        )}
+      </div>
+      <span className="text-2xl font-semibold tracking-tight text-gray-900" style={{ color: color || "#111827" }}>{value}</span>
       {sub && <span className="text-xs text-gray-400">{sub}</span>}
     </div>
   );
@@ -360,6 +399,7 @@ function ProposalDrawer({ proposal, onClose }: { proposal: ProposalData; onClose
     if (sec.toLowerCase().includes("submitted")) return "blue";
     return "gray";
   };
+  console.log("proposal", proposal);
 
   return (
     <>
@@ -421,6 +461,16 @@ function ProposalDrawer({ proposal, onClose }: { proposal: ProposalData; onClose
               <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Cover Letter</h3>
               <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-gray-50 border border-gray-200 rounded-lg p-4">
                 {proposal.coverLetter}
+              </p>
+            </section>
+          )}
+
+          {/* Personal note from client (interviews) */}
+          {proposal.clientNote && (
+            <section>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Personal Note from Client</h3>
+              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-purple-50 border border-purple-100 rounded-lg p-4">
+                {proposal.clientNote}
               </p>
             </section>
           )}
@@ -549,7 +599,7 @@ interface AlertData {
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
 
-type Tab = "overview" | "jobs" | "proposals" | "alerts" | "snapshots";
+type Tab = "overview" | "jobs" | "proposals" | "submissions" | "alerts" | "snapshots";
 
 // ─── Tooltip style (shared across charts) ────────────────────────────────────
 
@@ -575,10 +625,18 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
+
+  useEffect(() => {
+    if (accounts.length === 0) return;
+    const current = accounts.find((a) => a.id === selectedAccountId);
+    if (!current) setSelectedAccountId(accounts[0].id);
+  }, [accounts, selectedAccountId]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [selectedJob, setSelectedJob] = useState<JobData | null>(null);
   const [selectedProposal, setSelectedProposal] = useState<ProposalData | null>(null);
+  const [proposalFilter, setProposalFilter] = useState<string>("all");
+  const [overviewRange, setOverviewRange] = useState<"7d" | "30d" | "90d">("30d");
   const [alerts, setAlerts] = useState<AlertData[]>([]);
 
   useEffect(() => {
@@ -618,22 +676,25 @@ export default function Dashboard() {
 
     const latest = accs.reduce(
       (acc, a) => {
-        if (!a.latestSnapshot) return acc;
-        const ls = a.latestSnapshot;
+        const matching = a.snapshots
+          .filter((s) => s.range === overviewRange)
+          .sort((x, y) => new Date(y.capturedAt).getTime() - new Date(x.capturedAt).getTime());
+        const ls = matching[0];
+        if (!ls) return acc;
         return {
-          sent: acc.sent + ls.funnel.sent,
-          viewed: acc.viewed + ls.funnel.viewed,
-          interviewed: acc.interviewed + ls.funnel.interviewed,
-          hired: acc.hired + ls.funnel.hired,
-          boostedSent: acc.boostedSent + ls.boosted.sent,
-          organicSent: acc.organicSent + ls.organic.sent,
-          boostedViewed: acc.boostedViewed + ls.boosted.viewed,
-          organicViewed: acc.organicViewed + ls.organic.viewed,
-          boostedInterviewed: acc.boostedInterviewed + ls.boosted.interviewed,
-          organicInterviewed: acc.organicInterviewed + ls.organic.interviewed,
-          boostedHired: acc.boostedHired + ls.boosted.hired,
-          organicHired: acc.organicHired + ls.organic.hired,
-          jss: ls.jss ?? a.jss,
+          sent: acc.sent + ls.sent,
+          viewed: acc.viewed + ls.viewed,
+          interviewed: acc.interviewed + ls.interviewed,
+          hired: acc.hired + ls.hired,
+          boostedSent: acc.boostedSent + ls.boostedSent,
+          organicSent: acc.organicSent + ls.organicSent,
+          boostedViewed: acc.boostedViewed + ls.boostedViewed,
+          organicViewed: acc.organicViewed + ls.organicViewed,
+          boostedInterviewed: acc.boostedInterviewed + ls.boostedInterviewed,
+          organicInterviewed: acc.organicInterviewed + ls.organicInterviewed,
+          boostedHired: acc.boostedHired + ls.boostedHired,
+          organicHired: acc.organicHired + ls.organicHired,
+          jss: ls.jss ?? acc.jss ?? a.jss,
           connectsBalance: (acc.connectsBalance ?? 0) + (ls.connectsBalance ?? a.connectsBalance ?? 0),
         };
       },
@@ -649,20 +710,53 @@ export default function Dashboard() {
     );
 
     const allSnapshots = accs.flatMap((a) => a.snapshots);
+    const snapshotsInRange = allSnapshots.filter((s) => s.range === overviewRange);
     const viewRate = latest.sent > 0 ? Math.round((latest.viewed / latest.sent) * 1000) / 10 : 0;
     const interviewRate = latest.sent > 0 ? Math.round((latest.interviewed / latest.sent) * 1000) / 10 : 0;
     const hireRate = latest.sent > 0 ? Math.round((latest.hired / latest.sent) * 1000) / 10 : 0;
     const viewToInterview = latest.viewed > 0 ? Math.round((latest.interviewed / latest.viewed) * 1000) / 10 : 0;
     const interviewToHire = latest.interviewed > 0 ? Math.round((latest.hired / latest.interviewed) * 1000) / 10 : 0;
 
-    return { ...latest, viewRate, interviewRate, hireRate, viewToInterview, interviewToHire, allSnapshots };
-  }, [accounts, selected]);
+    return { ...latest, viewRate, interviewRate, hireRate, viewToInterview, interviewToHire, allSnapshots, snapshotsInRange };
+  }, [accounts, selected, overviewRange]);
+
+  // Deltas: compare the latest snapshot in range to the one before it (same range)
+  const deltas = useMemo(() => {
+    const accs = selected ? [selected] : accounts;
+    const cur = { sent: 0, viewed: 0, interviewed: 0, hired: 0 };
+    const prev = { sent: 0, viewed: 0, interviewed: 0, hired: 0 };
+    let anyPrev = false;
+    for (const a of accs) {
+      const matching = a.snapshots
+        .filter((s) => s.range === overviewRange)
+        .sort((x, y) => new Date(y.capturedAt).getTime() - new Date(x.capturedAt).getTime());
+      if (matching.length < 2) continue;
+      anyPrev = true;
+      cur.sent += matching[0].sent;
+      cur.viewed += matching[0].viewed;
+      cur.interviewed += matching[0].interviewed;
+      cur.hired += matching[0].hired;
+      prev.sent += matching[1].sent;
+      prev.viewed += matching[1].viewed;
+      prev.interviewed += matching[1].interviewed;
+      prev.hired += matching[1].hired;
+    }
+    if (!anyPrev) return null;
+    const pct = (c: number, p: number) => (p === 0 ? null : Math.round(((c - p) / p) * 100));
+    return {
+      sent: pct(cur.sent, prev.sent),
+      viewed: pct(cur.viewed, prev.viewed),
+      interviewed: pct(cur.interviewed, prev.interviewed),
+      hired: pct(cur.hired, prev.hired),
+    };
+  }, [accounts, selected, overviewRange]);
 
   const timeSeriesData = useMemo(() => {
     const accs = selected ? [selected] : accounts;
     const byDate = new Map<string, SnapshotSummary & { count: number }>();
     for (const acc of accs) {
       for (const s of acc.snapshots) {
+        if (s.range !== overviewRange) continue;
         const dateKey = fmtDate(s.capturedAt);
         const existing = byDate.get(dateKey);
         if (existing) {
@@ -695,7 +789,7 @@ export default function Dashboard() {
       viewRate: d.sent > 0 ? Math.round((d.viewed / d.sent) * 1000) / 10 : 0,
       hireRate: d.sent > 0 ? Math.round((d.hired / d.sent) * 1000) / 10 : 0,
     }));
-  }, [accounts, selected]);
+  }, [accounts, selected, overviewRange]);
 
   const funnelData = useMemo(() => [
     { stage: "Sent", total: aggregated.sent, boosted: aggregated.boostedSent, organic: aggregated.organicSent },
@@ -714,6 +808,17 @@ export default function Dashboard() {
     return accs.flatMap((a) => a.proposals || []);
   }, [accounts, selected]);
 
+  const submissions = useMemo(
+    () => allProposals
+      .filter((p) => p.submittedViaExtension)
+      .sort((a, b) => {
+        const ta = new Date(a.submittedAt || a.createdAt).getTime();
+        const tb = new Date(b.submittedAt || b.createdAt).getTime();
+        return tb - ta;
+      }),
+    [allProposals]
+  );
+
   const sortedProposalSections = useMemo(() => {
     const sections = new Map<string, ProposalData[]>();
     for (const p of allProposals) {
@@ -721,21 +826,45 @@ export default function Dashboard() {
       if (!sections.has(sec)) sections.set(sec, []);
       sections.get(sec)!.push(p);
     }
-    const order = ["Offers", "Invites from clients", "Active proposals", "Submitted proposals", "Archived proposals", "Other", "Unknown"];
+    // Sort each section by submittedAt desc (newest first), matching Upwork's list order.
+    for (const [, props] of sections) {
+      props.sort((a, b) => {
+        const ta = new Date(a.submittedAt || a.createdAt).getTime();
+        const tb = new Date(b.submittedAt || b.createdAt).getTime();
+        return tb - ta;
+      });
+    }
+    const order = ["Offers", "Invites from clients", "Active proposals", "Submitted proposals", "Archived proposals", "Archived interviews", "Other", "Unknown"];
     return Array.from(sections.entries()).sort(
       (a, b) => order.indexOf(a[0]) - order.indexOf(b[0])
     );
   }, [allProposals]);
 
-  const unreadAlerts = useMemo(() => alerts.filter((a) => !a.read && !a.freelancerReplied && a.needsAttention), [alerts]);
+  const filteredProposalSections = useMemo(
+    () => proposalFilter === "all"
+      ? sortedProposalSections
+      : sortedProposalSections.filter(([section]) => section === proposalFilter),
+    [sortedProposalSections, proposalFilter]
+  );
+  const filteredProposalCount = useMemo(
+    () => filteredProposalSections.reduce((sum, [, props]) => sum + props.length, 0),
+    [filteredProposalSections]
+  );
+
+  const scopedAlerts = useMemo(
+    () => (selected ? alerts.filter((a) => a.accountId === selected.id) : alerts),
+    [alerts, selected]
+  );
+
+  const unreadAlerts = useMemo(() => scopedAlerts.filter((a) => !a.read && !a.freelancerReplied && a.needsAttention), [scopedAlerts]);
   const alertsByType = useMemo(() => {
     const groups: Record<string, AlertData[]> = { message: [], invite: [], offer: [] };
-    for (const a of alerts) {
+    for (const a of scopedAlerts) {
       if (!groups[a.type]) groups[a.type] = [];
       groups[a.type].push(a);
     }
     return groups;
-  }, [alerts]);
+  }, [scopedAlerts]);
 
   const alertCounts = useMemo(() => ({
     messages: alertsByType.message?.filter((a) => !a.read).length || 0,
@@ -760,10 +889,15 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-gray-500">Loading dashboard...</p>
+      <div className="min-h-screen bg-gray-50 p-6">
+        <div className="max-w-6xl mx-auto space-y-4">
+          <div className="h-8 w-48 rounded bg-gray-200 animate-pulse" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="bg-white border border-gray-200 rounded-xl p-5 h-24 animate-pulse" />
+            ))}
+          </div>
+          <div className="bg-white border border-gray-200 rounded-xl h-64 animate-pulse" />
         </div>
       </div>
     );
@@ -771,11 +905,15 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center flex-col gap-4">
-        <div className="text-rose-500 text-base font-medium">Failed to load: {error}</div>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center flex-col gap-4">
+        <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-500">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div className="text-gray-900 text-base font-medium">Failed to load dashboard</div>
+        <div className="text-xs text-gray-500 max-w-md text-center">{error}</div>
         <button
           onClick={() => setRefreshKey((k) => k + 1)}
-          className="px-4 py-2 bg-gray-100 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-200 transition-colors"
+          className="px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
         >
           Retry
         </button>
@@ -785,9 +923,9 @@ export default function Dashboard() {
 
   if (accounts.length === 0) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center flex-col gap-4 px-6 text-center">
-        <div className="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center text-2xl border border-teal-100">
-          📊
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center flex-col gap-4 px-6 text-center">
+        <div className="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center text-teal-500 border border-teal-100">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7"><path d="M3 3v18h18"/><path d="M7 15l4-8 4 6 4-10"/></svg>
         </div>
         <h1 className="text-xl font-semibold text-gray-900">No data yet</h1>
         <p className="text-gray-500 max-w-md text-sm leading-relaxed">
@@ -801,12 +939,13 @@ export default function Dashboard() {
     .filter((a) => a.latestSnapshot)
     .sort((a, b) => new Date(b.latestSnapshot!.capturedAt).getTime() - new Date(a.latestSnapshot!.capturedAt).getTime())[0];
 
-  const TABS: { id: Tab; label: string; count?: number }[] = [
-    { id: "overview", label: "Overview" },
-    { id: "jobs", label: "Jobs", count: allJobs.length },
-    { id: "proposals", label: "Proposals", count: allProposals.length },
-    { id: "alerts", label: "Alerts", count: unreadAlerts.length },
-    { id: "snapshots", label: "Snapshots", count: aggregated.allSnapshots.length },
+  const TABS: { id: Tab; label: string; count?: number; icon: React.ReactNode }[] = [
+    { id: "overview", label: "Overview", icon: <IconHome /> },
+    { id: "jobs", label: "Jobs", count: allJobs.length, icon: <IconBriefcase /> },
+    { id: "proposals", label: "Proposals", count: allProposals.length, icon: <IconFile /> },
+    { id: "submissions", label: "Submissions", count: submissions.length, icon: <IconSend /> },
+    { id: "alerts", label: "Alerts", count: unreadAlerts.length, icon: <IconBell /> },
+    { id: "snapshots", label: "Snapshots", count: aggregated.allSnapshots.length, icon: <IconCamera /> },
   ];
 
   // ── Proposal section badge helper ──────────────────────────────────────────
@@ -821,96 +960,134 @@ export default function Dashboard() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
+  const activeTabLabel = TABS.find((t) => t.id === activeTab)?.label ?? "Overview";
+
   return (
-    <div className="min-h-screen bg-white text-gray-900">
+    <div className="min-h-screen bg-gray-50 text-gray-900 flex">
       {/* Drawers */}
       {selectedJob && <JobDrawer job={selectedJob} onClose={closeDrawer} />}
       {selectedProposal && <ProposalDrawer proposal={selectedProposal} onClose={closeDrawer} />}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6">
-        {/* ── Header ──────────────────────────────────────────────────────── */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-6 pb-5 border-b border-gray-200">
+      {/* ── Sidebar ─────────────────────────────────────────────────────── */}
+      <aside className="w-60 bg-white border-r border-gray-200 flex flex-col sticky top-0 h-screen flex-shrink-0">
+        <div className="h-14 px-5 flex items-center border-b border-gray-200">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-teal-500 text-white flex items-center justify-center text-xs font-bold">UT</div>
+            <span className="text-sm font-semibold text-gray-900 tracking-tight">Upwork Tracker</span>
+          </div>
+        </div>
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  isActive
+                    ? "bg-teal-50 text-teal-700 font-medium"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                }`}
+              >
+                <span className={isActive ? "text-teal-600" : "text-gray-400"}>{tab.icon}</span>
+                <span className="flex-1 text-left">{tab.label}</span>
+                {tab.count != null && tab.count > 0 && (
+                  <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${
+                    isActive ? "bg-teal-100 text-teal-700" : "bg-gray-100 text-gray-500"
+                  }`}>
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+        <div className="p-3 border-t border-gray-200">
+          <label className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold px-1">Account</label>
+          <select
+            value={selectedAccountId}
+            onChange={(e) => setSelectedAccountId(e.target.value)}
+            className="w-full mt-1.5 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+          >
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+          </select>
+        </div>
+      </aside>
+
+      {/* ── Main ────────────────────────────────────────────────────────── */}
+      <main className="flex-1 min-w-0 flex flex-col">
+        {/* Top bar */}
+        <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-gray-200 h-14 flex items-center justify-between px-6">
           <div>
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">Upwork Tracker</h1>
+            <h1 className="text-sm font-semibold text-gray-900">{activeTabLabel}</h1>
             {lastSync?.latestSnapshot && (
-              <p className="text-xs text-gray-400 mt-0.5">
-                Last sync: {fmtDateTime(lastSync.latestSnapshot.capturedAt)}
+              <p className="text-[11px] text-gray-400">
+                Last sync {fmtDateTime(lastSync.latestSnapshot.capturedAt)}
               </p>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <select
-              value={selectedAccountId}
-              onChange={(e) => setSelectedAccountId(e.target.value)}
-              className="bg-white border border-gray-200 text-sm text-gray-700 rounded-lg px-3 py-2 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 shadow-sm"
-            >
-              <option value="all">All Accounts ({accounts.length})</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
-            </select>
             <button
               onClick={() => setRefreshKey((k) => k + 1)}
-              className="px-3 py-2 bg-white border border-gray-200 text-sm text-gray-600 rounded-lg hover:bg-gray-50 shadow-sm transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 shadow-sm transition-colors"
             >
-              Refresh
+              <IconRefresh /> Refresh
             </button>
           </div>
-        </div>
+        </header>
 
-        {/* ── Tab Navigation ───────────────────────────────────────────────── */}
-        <div className="flex gap-1 mt-4 border-b border-gray-200">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors relative -mb-px ${
-                activeTab === tab.id
-                  ? "text-teal-600 border border-b-white border-gray-200 bg-white"
-                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-50 border border-transparent"
-              }`}
-            >
-              {tab.label}
-              {tab.count != null && tab.count > 0 && (
-                <span className={`ml-1.5 px-1.5 py-0.5 text-xs rounded-full ${
-                  activeTab === tab.id
-                    ? "bg-teal-50 text-teal-600"
-                    : "bg-gray-100 text-gray-500"
-                }`}>
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+        <div className="flex-1 px-6 pb-6 overflow-auto">
 
         {/* ── Overview Tab ─────────────────────────────────────────────────── */}
         {activeTab === "overview" && (
           <div className="py-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Proposal performance</h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {aggregated.snapshotsInRange.length} snapshot{aggregated.snapshotsInRange.length !== 1 ? "s" : ""} captured in this range
+                </p>
+              </div>
+              <select
+                value={overviewRange}
+                onChange={(e) => setOverviewRange(e.target.value as "7d" | "30d" | "90d")}
+                className="text-xs border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer shadow-sm"
+              >
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+                <option value="90d">Last 90 days</option>
+              </select>
+            </div>
             {/* Stat Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               <StatCard
                 label="Proposals Sent"
                 value={fmt(aggregated.sent)}
                 color={COLORS.blue}
+                delta={deltas?.sent}
               />
               <StatCard
                 label="Viewed"
                 value={fmt(aggregated.viewed)}
                 sub={`${aggregated.viewRate}% view rate`}
                 color={COLORS.cyan}
+                delta={deltas?.viewed}
               />
               <StatCard
                 label="Interviewed"
                 value={fmt(aggregated.interviewed)}
                 sub={`${aggregated.interviewRate}% of sent`}
                 color={COLORS.purple}
+                delta={deltas?.interviewed}
               />
               <StatCard
                 label="Hired"
                 value={fmt(aggregated.hired)}
                 sub={`${aggregated.hireRate}% hire rate`}
                 color={COLORS.green}
+                delta={deltas?.hired}
               />
               {aggregated.jss !== null && (
                 <StatCard
@@ -924,8 +1101,8 @@ export default function Dashboard() {
               )}
               <StatCard
                 label="Data Points"
-                value={aggregated.allSnapshots.length}
-                sub={`${accounts.length} account${accounts.length > 1 ? "s" : ""}`}
+                value={aggregated.snapshotsInRange.length}
+                sub={`in last ${overviewRange === "7d" ? "7" : overviewRange === "30d" ? "30" : "90"} days`}
               />
             </div>
 
@@ -1155,24 +1332,83 @@ export default function Dashboard() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
                 Proposals
-                <span className="ml-2 text-gray-400 font-normal normal-case tracking-normal">({allProposals.length})</span>
+                <span className="ml-2 text-gray-400 font-normal normal-case tracking-normal">
+                  ({filteredProposalCount}{proposalFilter !== "all" ? ` of ${allProposals.length}` : ""})
+                </span>
               </h2>
-              <span className="text-xs text-gray-400">Click a row to see full details</span>
+              <div className="flex items-center gap-3">
+                <select
+                  value={proposalFilter}
+                  onChange={(e) => setProposalFilter(e.target.value)}
+                  className="text-xs border border-gray-200 rounded-md px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                >
+                  <option value="all">All sections</option>
+                  {sortedProposalSections.map(([section, props]) => (
+                    <option key={section} value={section}>
+                      {section} ({props.length})
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-gray-400 hidden sm:inline">Click a row to see full details</span>
+              </div>
             </div>
 
             {allProposals.length === 0 ? (
               <div className="border border-gray-200 rounded-xl py-16 text-center text-gray-400 text-sm">
                 No proposals tracked yet
               </div>
+            ) : filteredProposalSections.length === 0 ? (
+              <div className="border border-gray-200 rounded-xl py-16 text-center text-gray-400 text-sm">
+                No proposals in this section
+              </div>
             ) : (
               <div className="flex flex-col gap-6">
-                {sortedProposalSections.map(([section, props]) => (
+                {filteredProposalSections.map(([section, props]) => {
+                  const isArchived = section.toLowerCase().includes("archived");
+                  const isInterview = section.toLowerCase().includes("interview");
+                  const unit = isInterview ? "interview" : "proposal";
+                  return (
                   <div key={section}>
                     <div className="flex items-center gap-3 mb-3">
                       <Badge text={section} variant={sectionBadgeVariant(section)} />
-                      <span className="text-xs text-gray-400">{props.length} proposal{props.length !== 1 ? "s" : ""}</span>
+                      <span className="text-xs text-gray-400">{props.length} {unit}{props.length !== 1 ? "s" : ""}</span>
                     </div>
                     <div className="border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+                      {isArchived ? (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-200 bg-gray-50">
+                            <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">{isInterview ? "Received" : "Initiated"}</th>
+                            <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Job Title</th>
+                            <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Status</th>
+                            <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Profile</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {props.map((p) => (
+                            <tr
+                              key={p.id}
+                              onClick={() => setSelectedProposal(p)}
+                              className="border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors"
+                            >
+                              <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
+                                {p.submittedAt ? fmtDateTime(p.submittedAt) : fmtDateTime(p.createdAt)}
+                              </td>
+                              <td className="px-4 py-3 max-w-md">
+                                <span className="text-teal-600 font-medium truncate block">{p.jobTitle || "Untitled"}</span>
+                              </td>
+                              <td className="px-4 py-3">
+                                {p.status
+                                  ? <Badge text={p.status} variant="gray" />
+                                  : <span className="text-gray-300 text-xs">—</span>
+                                }
+                              </td>
+                              <td className="px-4 py-3 text-gray-500 text-xs">{p.profileUsed || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      ) : (
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-gray-200 bg-gray-50">
@@ -1283,8 +1519,131 @@ export default function Dashboard() {
                           ))}
                         </tbody>
                       </table>
+                      )}
                     </div>
                   </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Submissions Tab ─────────────────────────────────────────────── */}
+        {activeTab === "submissions" && (
+          <div className="py-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Submissions</h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Captured the moment you clicked “Submit a Proposal” on Upwork
+                </p>
+              </div>
+              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-md">
+                {submissions.length} total
+              </span>
+            </div>
+
+            {submissions.length === 0 ? (
+              <div className="border border-dashed border-gray-200 rounded-xl py-20 px-6 text-center">
+                <div className="mx-auto w-12 h-12 rounded-full bg-teal-50 text-teal-500 border border-teal-100 flex items-center justify-center mb-4">
+                  <IconSend />
+                </div>
+                <h3 className="text-sm font-semibold text-gray-700">No submissions yet</h3>
+                <p className="text-xs text-gray-400 mt-1 max-w-md mx-auto">
+                  Submissions appear here automatically when you click “Submit a Proposal” on an Upwork apply page with the extension active.
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {submissions.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedProposal(p)}
+                    className="text-left w-full bg-white border border-gray-200 rounded-xl p-5 hover:border-teal-300 hover:shadow-sm transition-all"
+                  >
+                    <div className="flex items-start justify-between gap-4 mb-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-100">
+                            <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
+                            LIVE
+                          </span>
+                          <span className="text-[11px] text-gray-400">
+                            {fmtDateTime(p.submittedAt || p.createdAt)}
+                          </span>
+                        </div>
+                        <h3 className="text-sm font-semibold text-gray-900 truncate">
+                          {p.jobTitle || "Untitled"}
+                        </h3>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {p.proposedRate && (
+                          <span className="text-xs font-medium text-amber-600">{p.proposedRate}</span>
+                        )}
+                        {p.bidConnects != null && (
+                          <span className="text-[11px] text-orange-500">{p.bidConnects} connects</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mb-3 text-[11px]">
+                      {p.profileUsed && (
+                        <span className="px-2 py-0.5 rounded bg-gray-50 border border-gray-200 text-gray-600">
+                          {p.profileUsed}
+                        </span>
+                      )}
+                      {p.jobCategory && (
+                        <span className="px-2 py-0.5 rounded bg-purple-50 border border-purple-100 text-purple-700">
+                          {p.jobCategory}
+                        </span>
+                      )}
+                      {p.jobBudget && (
+                        <span className="px-2 py-0.5 rounded bg-amber-50 border border-amber-100 text-amber-700">
+                          {p.jobBudget}
+                        </span>
+                      )}
+                      {p.jobExperienceLevel && (
+                        <span className="px-2 py-0.5 rounded bg-blue-50 border border-blue-100 text-blue-700 capitalize">
+                          {p.jobExperienceLevel}
+                        </span>
+                      )}
+                      {p.jobDuration && (
+                        <span className="px-2 py-0.5 rounded bg-gray-50 border border-gray-200 text-gray-600">
+                          {p.jobDuration}
+                        </span>
+                      )}
+                    </div>
+
+                    {(p.clientRating != null || p.clientTotalSpent || p.clientHireRate != null || p.clientCountry) && (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500 mb-3 pb-3 border-b border-gray-100">
+                        {p.clientRating != null && (
+                          <span className="flex items-center gap-1">
+                            <StarRating rating={p.clientRating} />
+                            <span className="text-gray-700 font-medium">{p.clientRating}</span>
+                            {p.clientReviews != null && <span>({p.clientReviews})</span>}
+                          </span>
+                        )}
+                        {p.clientPaymentVerified && (
+                          <span className="text-green-600">Pay verified</span>
+                        )}
+                        {p.clientTotalSpent && (
+                          <span className="text-green-600 font-medium">{p.clientTotalSpent} spent</span>
+                        )}
+                        {p.clientHireRate != null && (
+                          <span className="text-teal-600">{p.clientHireRate}% hire rate</span>
+                        )}
+                        {(p.clientCity || p.clientCountry) && (
+                          <span>{[p.clientCity, p.clientCountry].filter(Boolean).join(", ")}</span>
+                        )}
+                      </div>
+                    )}
+
+                    {p.coverLetter && (
+                      <p className="text-xs text-gray-600 leading-relaxed line-clamp-3 whitespace-pre-wrap">
+                        {p.coverLetter}
+                      </p>
+                    )}
+                  </button>
                 ))}
               </div>
             )}
@@ -1297,12 +1656,12 @@ export default function Dashboard() {
             {/* Alert stats */}
             <div className="grid grid-cols-2 gap-3 mb-6">
               <StatCard label="Unread Messages" value={alertCounts.messages} color={COLORS.blue} />
-              <StatCard label="Total Messages (7d)" value={alerts.length} color={COLORS.teal} />
+              <StatCard label="Total Messages (7d)" value={scopedAlerts.length} color={COLORS.teal} />
             </div>
 
-            {alerts.length === 0 ? (
+            {scopedAlerts.length === 0 ? (
               <div className="border border-gray-200 rounded-xl py-16 text-center text-gray-400 text-sm">
-                No alerts yet -- browse Upwork with the extension active to start receiving alerts
+                No alerts for this account yet -- browse Upwork with the extension active to start receiving alerts
               </div>
             ) : (
               <div className="flex flex-col gap-6">
@@ -1348,11 +1707,11 @@ export default function Dashboard() {
                               <p className="text-xs text-gray-400 mt-1">{a.accountName} -- {fmtDateTime(a.createdAt)}</p>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
-                              {a.url && (
+                              {/* {a.url && (
                                 <a href={a.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">
                                   Open
                                 </a>
-                              )}
+                              )} */}
                               {!a.read && (
                                 <button
                                   onClick={() => dismissAlert(a.id)}
@@ -1441,15 +1800,16 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── Footer ───────────────────────────────────────────────────────── */}
-        <div className="text-center text-xs text-gray-400 border-t border-gray-100 mt-4 py-4">
-          Upwork Tracker — {accounts.length} account{accounts.length !== 1 ? "s" : ""} — {aggregated.allSnapshots.length} snapshots
-          {(() => {
-            const j = accounts.reduce((s, a) => s + (a.jobCount || 0), 0);
-            return j > 0 ? ` — ${j} jobs tracked` : "";
-          })()}
+          {/* ── Footer ───────────────────────────────────────────────────────── */}
+          <div className="text-center text-xs text-gray-400 border-t border-gray-100 mt-4 py-4">
+            Upwork Tracker — {accounts.length} account{accounts.length !== 1 ? "s" : ""} — {aggregated.allSnapshots.length} snapshots
+            {(() => {
+              const j = accounts.reduce((s, a) => s + (a.jobCount || 0), 0);
+              return j > 0 ? ` — ${j} jobs tracked` : "";
+            })()}
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
