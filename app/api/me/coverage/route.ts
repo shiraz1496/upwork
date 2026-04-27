@@ -30,10 +30,9 @@ export async function GET(req: NextRequest) {
     const capturedItems = items.filter((i) => i.capturedAt).length;
     const uncapturedItems = items.filter((i) => !i.capturedAt);
 
-    // Weighted average: Checklist (50%) + Dynamic Items (50%)
-    const checklistScore = allPages.length === 0 ? 100 : (visitedSet.size / allPages.length) * 100;
-    const itemsScore = totalItems === 0 ? 100 : (capturedItems / totalItems) * 100;
-    const coveragePct = Math.round((checklistScore + itemsScore) / 2);
+    // Coverage is based purely on the static checklist pages
+    const coveragePct = allPages.length === 0 ? 100 : Math.round((visitedSet.size / allPages.length) * 100);
+
 
     return Response.json({
       member: { id: member.id, name: member.name },
@@ -42,15 +41,8 @@ export async function GET(req: NextRequest) {
         pages: { total: allPages.length, visited: visitedSet.size },
         items: { total: totalItems, captured: capturedItems },
       },
-      unvisited: [
-        ...unvisitedPages.map((p) => ({ ...p, type: "PAGE" })),
-        ...uncapturedItems.map((i) => ({
-          id: i.id,
-          name: i.entityId,
-          url: i.openUrl,
-          type: i.entityType,
-        })),
-      ],
+      unvisited: unvisitedPages.map((p) => ({ ...p, type: "PAGE" })),
+
     });
 
   } catch (err) {
