@@ -1,5 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { withAttribution, firstCaptureFields, resolveAccount } from "@/lib/attribution";
+import { logAudit } from "@/lib/audit";
+import { upsertCoverageReference } from "@/lib/coverage";
+
+const ACTIVE_SECTIONS = new Set(["Active", "Interviewing", "Offers"]);
 
 function tryParseDate(str: string): Date | null {
   if (!str) return null;
@@ -7,32 +12,28 @@ function tryParseDate(str: string): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withAttribution(async ({ req, member }) => {
   try {
     const body = await req.json();
     const { freelancerId, proposals } = body;
-
     if (!freelancerId || !Array.isArray(proposals)) {
       return NextResponse.json({ error: "freelancerId and proposals array required" }, { status: 400 });
     }
 
-    let account = await prisma.account.findUnique({ where: { freelancerId: String(freelancerId) } });
-    if (!account) {
-      try {
-        account = await prisma.account.create({
-          data: { freelancerId: String(freelancerId), name: String(freelancerId) },
-        });
-      } catch {
-        account = await prisma.account.findUnique({ where: { freelancerId: String(freelancerId) } });
-      }
-    }
-    if (!account) {
-      return NextResponse.json({ error: "Failed to resolve account" }, { status: 500 });
-    }
+    const account = await resolveAccount(freelancerId);
+    if (!account) return NextResponse.json({ error: "Failed to resolve account" }, { status: 500 });
 
     let saved = 0;
     for (const p of proposals) {
-      if (!p.title) continue;
+      if (!p.title) {
+        await logAudit({
+          event: "sync.skipped_record",
+          actorId: member.id,
+          subjectType: "Proposal",
+          meta: { reason: "no_title", keys: Object.keys(p || {}) },
+        });
+        continue;
+      }
       const jobUrl = p.url || null;
       const parsedDate = tryParseDate(p.submittedAt);
 
@@ -48,18 +49,9 @@ export async function POST(req: NextRequest) {
         ...(jobUrl ? { jobUrl } : {}),
       };
 
-      // Find existing by URL first, then by title
       let existing = null;
-      if (jobUrl) {
-        existing = await prisma.proposal.findFirst({
-          where: { accountId: account.id, jobUrl },
-        });
-      }
-      if (!existing) {
-        existing = await prisma.proposal.findFirst({
-          where: { accountId: account.id, jobTitle: p.title },
-        });
-      }
+      if (jobUrl) existing = await prisma.proposal.findFirst({ where: { accountId: account.id, jobUrl } });
+      if (!existing) existing = await prisma.proposal.findFirst({ where: { accountId: account.id, jobTitle: p.title } });
 
       if (existing) {
         await prisma.proposal.update({ where: { id: existing.id }, data: updateData });
@@ -76,16 +68,33 @@ export async function POST(req: NextRequest) {
             viewedByClient: p.viewedByClient ?? false,
             submittedAt: parsedDate ?? null,
             profileUsed: p.profileUsed ?? null,
+            ...firstCaptureFields(member),
           },
         });
       }
+
+      if (p.section && ACTIVE_SECTIONS.has(p.section) && jobUrl) {
+        const reasonTags: string[] = [];
+        if (p.section === "Offers") reasonTags.push("offer_stage");
+        else if (p.section === "Interviewing") reasonTags.push("interview_stage");
+        if (p.viewedByClient) reasonTags.push("viewed");
+        reasonTags.push("submitted");
+        await upsertCoverageReference({
+          memberId: member.id,
+          accountId: account.id,
+          entityType: "proposal",
+          entityId: jobUrl,
+          openUrl: jobUrl,
+          reasonTags,
+        });
+      }
+
       saved++;
     }
 
     return NextResponse.json({ ok: true, saved });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[sync/proposals]", message);
+  } catch (err) {
+    console.error("[sync/proposals]", err);
     return NextResponse.json({ error: "Failed to sync proposals" }, { status: 500 });
   }
-}
+});

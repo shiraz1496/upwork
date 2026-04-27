@@ -47,20 +47,50 @@ async function getBackendUrl() {
   return data.backendUrl || DEFAULT_BACKEND_URL;
 }
 
+async function getAuthToken() {
+  const { authToken } = await chrome.storage.local.get(["authToken"]);
+  return authToken || null;
+}
+
 async function syncToBackend(endpoint, payload) {
   const backendUrl = await getBackendUrl();
+  const token = await getAuthToken();
+  if (!token) {
+    console.warn("[UT BG] No auth token — skipping sync to", endpoint);
+    await chrome.storage.local.set({ authError: "No token — paste in popup" });
+    return { ok: false, error: "no token" };
+  }
+
   const url = `${backendUrl}${endpoint}`;
   console.log("[UT BG] POST", url, JSON.stringify(payload).slice(0, 200));
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(payload),
     });
+
+    if (res.status === 401) {
+      console.error("[UT BG] 401 — token invalid/revoked, clearing");
+      await chrome.storage.local.set({
+        authToken: null,
+        authMember: null,
+        authError: "Token invalid or revoked. Paste a new one.",
+      });
+      return { ok: false, error: "unauthorized" };
+    }
+
     const result = await res.json();
     console.log("[UT BG] Server:", JSON.stringify(result));
     const { syncCount = 0 } = await chrome.storage.local.get(["syncCount"]);
-    await chrome.storage.local.set({ lastSync: new Date().toISOString(), syncCount: syncCount + 1 });
+    await chrome.storage.local.set({
+      lastSync: new Date().toISOString(),
+      syncCount: syncCount + 1,
+      authError: null,
+    });
     return { ok: true, result };
   } catch (err) {
     console.error("[UT BG] FAILED:", err.message);
@@ -145,10 +175,17 @@ async function handleMessage(message) {
       return handleAnalyzeCoverLetter(message.payload);
     case "INITIAL_STATE":
       return handleInitialState(message.payload);
+    case "SET_TOKEN":
+      return handleSetToken(message.payload);
+    case "CLEAR_TOKEN":
+      return handleClearToken();
+    case "FORCE_SYNC":
+      return handleForceSync();
     case "GET_STATUS": {
-      const data = await chrome.storage.local.get(
-        ["lastSync", "lastAccountInfo", "syncCount", "backendUrl", "canonicalUserId"]
-      );
+      const data = await chrome.storage.local.get([
+        "lastSync", "lastAccountInfo", "syncCount", "backendUrl",
+        "canonicalUserId", "authMember", "authError", "queuedCount",
+      ]);
       return data;
     }
     default:
@@ -497,4 +534,42 @@ async function handleAnalyzeCoverLetter(payload) {
     console.error("[UT BG] Analyze failed:", err.message);
     return { ok: false, error: err.message };
   }
+}
+
+// ════════════════════════════════════════════════════
+// TOKEN + AUTH (extension ↔ backend)
+// ════════════════════════════════════════════════════
+async function handleSetToken({ raw }) {
+  const backendUrl = await getBackendUrl();
+  try {
+    const res = await fetch(`${backendUrl}/api/auth/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${raw}` },
+      body: "{}",
+    });
+    if (res.status === 401) {
+      const body = await res.json().catch(() => ({}));
+      return { ok: false, error: body.error || "Token rejected" };
+    }
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const { member } = await res.json();
+    await chrome.storage.local.set({ authToken: raw, authMember: member, authError: null });
+    return { ok: true, member };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+async function handleClearToken() {
+  await chrome.storage.local.remove(["authToken", "authMember", "authError"]);
+  return { ok: true };
+}
+
+async function handleForceSync() {
+  const { lastAccountInfo: info } = await chrome.storage.local.get(["lastAccountInfo"]);
+  if (!info?.userId) return { ok: false, error: "No account info yet — open any Upwork page" };
+  return syncToBackend("/api/sync/account", {
+    freelancerId: info.userId,
+    ...(info.name ? { name: info.name } : {}),
+  });
 }

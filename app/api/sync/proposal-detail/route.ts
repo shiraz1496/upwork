@@ -1,7 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { withAttribution, firstCaptureFields, resolveAccount } from "@/lib/attribution";
+import { logAudit } from "@/lib/audit";
+import { markCoverageCaptured } from "@/lib/coverage";
 
-export async function POST(req: NextRequest) {
+export const POST = withAttribution(async ({ req, member }) => {
   try {
     const body = await req.json();
     const {
@@ -16,59 +19,22 @@ export async function POST(req: NextRequest) {
       section, status, submittedAt, submittedViaExtension,
     } = body;
 
-    if (!freelancerId) {
-      return NextResponse.json({ error: "freelancerId required" }, { status: 400 });
-    }
+    if (!freelancerId) return NextResponse.json({ error: "freelancerId required" }, { status: 400 });
 
-    let account = await prisma.account.findUnique({ where: { freelancerId: String(freelancerId) } });
-    if (!account) {
-      try {
-        account = await prisma.account.create({
-          data: { freelancerId: String(freelancerId), name: String(freelancerId) },
-        });
-      } catch {
-        account = await prisma.account.findUnique({ where: { freelancerId: String(freelancerId) } });
-      }
-    }
-    if (!account) {
-      return NextResponse.json({ error: "Failed to resolve account" }, { status: 500 });
-    }
+    const account = await resolveAccount(freelancerId);
+    if (!account) return NextResponse.json({ error: "Failed to resolve account" }, { status: 500 });
 
-    // Find existing proposal by job URL or title
     const jobUrl = url ? url.split("?")[0] : null;
     let proposal = null;
-
-    if (jobUrl) {
-      proposal = await prisma.proposal.findFirst({
-        where: { accountId: account.id, jobUrl },
-      });
-    }
-
-    // If not found by URL, try finding by exact title
-    if (!proposal && title) {
-      proposal = await prisma.proposal.findFirst({
-        where: { accountId: account.id, jobTitle: title },
-      });
-    }
-
-    // If still not found, try partial title match (list page may truncate)
-    if (!proposal && title && title.length > 5) {
-      proposal = await prisma.proposal.findFirst({
-        where: { accountId: account.id, jobTitle: { startsWith: title.slice(0, 20) } },
-      });
-    }
-
-    // Last resort: try matching by job URL containing the same job ID
+    if (jobUrl) proposal = await prisma.proposal.findFirst({ where: { accountId: account.id, jobUrl } });
+    if (!proposal && title) proposal = await prisma.proposal.findFirst({ where: { accountId: account.id, jobTitle: title } });
+    if (!proposal && title && title.length > 5)
+      proposal = await prisma.proposal.findFirst({ where: { accountId: account.id, jobTitle: { startsWith: title.slice(0, 20) } } });
     if (!proposal && jobUrl) {
       const jobIdMatch = jobUrl.match(/~(\w+)/);
-      if (jobIdMatch) {
-        proposal = await prisma.proposal.findFirst({
-          where: { accountId: account.id, jobUrl: { contains: jobIdMatch[1] } },
-        });
-      }
+      if (jobIdMatch) proposal = await prisma.proposal.findFirst({ where: { accountId: account.id, jobUrl: { contains: jobIdMatch[1] } } });
     }
 
-    // Build the detail data object with all new fields
     const detailData = {
       ...(section ? { section } : {}),
       ...(status ? { status } : {}),
@@ -109,36 +75,52 @@ export async function POST(req: NextRequest) {
     };
 
     if (proposal) {
-      // Update existing proposal with detail data
       await prisma.proposal.update({
         where: { id: proposal.id },
-        data: {
-          ...detailData,
-          ...(jobUrl && !proposal.jobUrl ? { jobUrl } : {}),
-        },
+        data: { ...detailData, ...(jobUrl && !proposal.jobUrl ? { jobUrl } : {}) },
       });
-      return NextResponse.json({ ok: true, proposalId: proposal.id, updated: true });
-    } else {
-      // Create new proposal with detail data
-      const newProposal = await prisma.proposal.create({
-        data: {
+      if (jobUrl) {
+        await markCoverageCaptured({
+          memberId: member.id,
           accountId: account.id,
-          jobTitle: title || null,
-          jobUrl: jobUrl || null,
-          coverLetter: coverLetter || null,
-          clientNote: clientNote || null,
-          viewedByClient: viewedByClient ?? false,
-          clientName: clientName || null,
-          clientCountry: clientCountry || null,
-          submittedViaExtension: submittedViaExtension ?? false,
-          ...detailData,
-        },
-      });
-      return NextResponse.json({ ok: true, proposalId: newProposal.id, created: true });
+          entityType: "proposal",
+          entityId: jobUrl,
+        });
+      }
+      return NextResponse.json({ ok: true, proposalId: proposal.id, updated: true });
     }
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[sync/proposal-detail]", message);
+    await logAudit({
+      event: "sync.unmatched_detail",
+      actorId: member.id,
+      subjectType: "Proposal",
+      meta: { url: jobUrl, titleSample: (title || "").slice(0, 80) },
+    });
+    const newProposal = await prisma.proposal.create({
+      data: {
+        accountId: account.id,
+        jobTitle: title || null,
+        jobUrl: jobUrl || null,
+        coverLetter: coverLetter || null,
+        clientNote: clientNote || null,
+        viewedByClient: viewedByClient ?? false,
+        clientName: clientName || null,
+        clientCountry: clientCountry || null,
+        submittedViaExtension: submittedViaExtension ?? false,
+        ...detailData,
+        ...firstCaptureFields(member),
+      },
+    });
+    if (jobUrl) {
+      await markCoverageCaptured({
+        memberId: member.id,
+        accountId: account.id,
+        entityType: "proposal",
+        entityId: jobUrl,
+      });
+    }
+    return NextResponse.json({ ok: true, proposalId: newProposal.id, created: true });
+  } catch (err) {
+    console.error("[sync/proposal-detail]", err);
     return NextResponse.json({ error: "Failed to sync proposal detail" }, { status: 500 });
   }
-}
+});

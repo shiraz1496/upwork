@@ -11,15 +11,18 @@ export async function GET() {
         jobs: {
           orderBy: { viewedAt: "desc" },
           take: 100,
+          include: { capturedByUser: { select: { id: true, name: true } } },
         },
         proposals: {
           orderBy: { createdAt: "desc" },
           take: 100,
+          include: { capturedByUser: { select: { id: true, name: true } } },
         },
         alerts: {
           where: { read: false },
           orderBy: { createdAt: "desc" },
           take: 50,
+          include: { capturedByUser: { select: { id: true, name: true } } },
         },
       },
     });
@@ -125,6 +128,9 @@ export async function GET() {
           jobLocation: j.jobLocation,
           connectsRequired: j.connectsRequired,
           viewedAt: j.viewedAt,
+          capturedBy: j.capturedByUser
+            ? { id: j.capturedByUser.id, name: j.capturedByUser.name }
+            : null,
         })),
         jobCount: account.jobs.length,
         proposals: account.proposals.map((p) => ({
@@ -171,6 +177,9 @@ export async function GET() {
           clientMemberSince: p.clientMemberSince,
           clientPaymentVerified: p.clientPaymentVerified,
           createdAt: p.createdAt,
+          capturedBy: p.capturedByUser
+            ? { id: p.capturedByUser.id, name: p.capturedByUser.name }
+            : null,
         })),
         proposalCount: account.proposals.length,
         alertCounts: {

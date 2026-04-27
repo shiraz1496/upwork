@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { NextResponse } from "next/server";
 import { z } from "zod";
+import { prisma } from "@/lib/prisma";
+import { withAttribution, resolveAccount } from "@/lib/attribution";
 
 const syncSchema = z.object({
-  freelancerId: z.string().min(1, "freelancerId required"),
+  freelancerId: z.string().min(1),
   accountName: z.string().optional().nullable(),
   capturedAt: z.string().datetime().optional(),
   startTimestamp: z.string().optional().nullable(),
@@ -24,41 +25,32 @@ const syncSchema = z.object({
   series: z.any().optional(),
 });
 
-export async function POST(req: NextRequest) {
+export const POST = withAttribution(async ({ req, member }) => {
   try {
-    const body = await req.json();
-    const parsed = syncSchema.safeParse(body);
-
+    const parsed = syncSchema.safeParse(await req.json());
     if (!parsed.success) {
       return NextResponse.json(
         { error: parsed.error.issues.map((i) => i.message).join(", ") },
-        { status: 400 }
+        { status: 400 },
       );
     }
+    const {
+      freelancerId, accountName, capturedAt, startTimestamp, endTimestamp,
+      range, jss, connectsBalance, totals, series,
+    } = parsed.data;
 
-    const { freelancerId, accountName, capturedAt, startTimestamp, endTimestamp, range, jss, connectsBalance, totals, series } = parsed.data;
+    const account = await resolveAccount(freelancerId, accountName);
+    if (!account) return NextResponse.json({ error: "Failed to resolve account" }, { status: 500 });
 
-    let account = await prisma.account.findUnique({ where: { freelancerId } });
-    if (account) {
-      account = await prisma.account.update({
-        where: { freelancerId },
+    if (accountName || jss != null || connectsBalance != null) {
+      await prisma.account.update({
+        where: { id: account.id },
         data: {
           ...(accountName ? { name: accountName } : {}),
           ...(jss != null ? { jss } : {}),
           ...(connectsBalance != null ? { connectsBalance } : {}),
         },
       });
-    } else {
-      try {
-        account = await prisma.account.create({
-          data: { freelancerId, name: accountName || freelancerId },
-        });
-      } catch {
-        account = await prisma.account.findUnique({ where: { freelancerId } });
-      }
-    }
-    if (!account) {
-      return NextResponse.json({ error: "Failed to resolve account" }, { status: 500 });
     }
 
     const snapshot = await prisma.snapshot.create({
@@ -79,13 +71,13 @@ export async function POST(req: NextRequest) {
         proposalsHiredBoosted: totals.proposals_hired_boosted,
         proposalsHiredOrganic: totals.proposals_hired_organic,
         seriesJson: series ? JSON.stringify(series) : null,
+        capturedByUserId: member.id,
       },
     });
 
     return NextResponse.json({ ok: true, snapshotId: snapshot.id });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[sync]", message);
+  } catch (err) {
+    console.error("[sync]", err);
     return NextResponse.json({ error: "Sync failed" }, { status: 500 });
   }
-}
+});

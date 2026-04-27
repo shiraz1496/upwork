@@ -18,6 +18,7 @@ export async function GET() {
         account: {
           select: { name: true, freelancerId: true },
         },
+        capturedByUser: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -46,6 +47,9 @@ export async function GET() {
       notifiedAt: a.notifiedAt,
       remindedAt: a.remindedAt,
       createdAt: a.createdAt,
+      capturedBy: a.capturedByUser
+        ? { id: a.capturedByUser.id, name: a.capturedByUser.name }
+        : null,
     }));
 
     return NextResponse.json(result);

@@ -1,142 +1,21 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
-import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer,
-  AreaChart, Area
-} from "recharts";
+import { TeamView } from "@/components/admin/TeamView";
+import { TeamStatsView } from "@/components/admin/TeamStatsView";
+import { AuditView } from "@/components/admin/AuditView";
+import { OverviewPanel } from "@/components/OverviewPanel";
+import type {
+  AccountData,
+  SnapshotSummary,
+  JobData,
+  ProposalData,
+  AlertData,
+  OverviewRange,
+} from "@/lib/overview-types";
+import { applyMemberFilter } from "@/lib/overview-aggregation";
 
-// ─── Interfaces (unchanged) ──────────────────────────────────────────────────
-
-interface SnapshotSummary {
-  id: string;
-  capturedAt: string;
-  startTimestamp: string | null;
-  endTimestamp: string | null;
-  range: string | null;
-  jss: number | null;
-  connectsBalance: number | null;
-  sent: number;
-  viewed: number;
-  interviewed: number;
-  hired: number;
-  boostedSent: number;
-  organicSent: number;
-  boostedViewed: number;
-  organicViewed: number;
-  boostedInterviewed: number;
-  organicInterviewed: number;
-  boostedHired: number;
-  organicHired: number;
-  viewRate: number;
-  interviewRate: number;
-  hireRate: number;
-}
-
-interface JobData {
-  id: string;
-  url: string;
-  title: string;
-  budget: string | null;
-  jobType: string | null;
-  category: string | null;
-  skills: string[];
-  experienceLevel: string | null;
-  clientPaymentVerified: boolean;
-  clientPhoneVerified: boolean;
-  clientRating: number | null;
-  clientReviewScore: string | null;
-  clientReviews: number | null;
-  clientSpent: string | null;
-  clientCountry: string | null;
-  clientCity: string | null;
-  clientHires: number | null;
-  clientActiveHires: number | null;
-  clientHireRate: number | null;
-  clientOpenJobs: number | null;
-  clientJobsPosted: number | null;
-  clientMemberSince: string | null;
-  clientIndustry: string | null;
-  clientCompanySize: string | null;
-  jobLocation: string | null;
-  connectsRequired: number | null;
-  viewedAt: string;
-}
-
-interface ProposalData {
-  id: string;
-  jobTitle: string | null;
-  jobUrl: string | null;
-  jobCategory: string | null;
-  status: string | null;
-  section: string | null;
-  boosted: boolean;
-  boostStatus: string | null;
-  viewedByClient: boolean;
-  coverLetter: string | null;
-  clientNote: string | null;
-  submittedViaExtension: boolean;
-  clientName: string | null;
-  clientCountry: string | null;
-  connectsSpent: number | null;
-  submittedAt: string | null;
-  profileUsed: string | null;
-  proposedRate: string | null;
-  receivedRate: string | null;
-  rateIncrease: string | null;
-  bidConnects: number | null;
-  jobBudget: string | null;
-  jobHoursPerWeek: string | null;
-  jobDuration: string | null;
-  jobExperienceLevel: string | null;
-  jobDescription: string | null;
-  jobSkills: string[];
-  jobPostedDate: string | null;
-  clientRating: number | null;
-  clientReviews: number | null;
-  clientReviewScore: string | null;
-  clientCity: string | null;
-  clientJobsPosted: number | null;
-  clientHireRate: number | null;
-  clientOpenJobs: number | null;
-  clientTotalSpent: string | null;
-  clientHires: number | null;
-  clientActiveHires: number | null;
-  clientAvgRate: string | null;
-  clientTotalHours: string | null;
-  clientMemberSince: string | null;
-  clientPaymentVerified: boolean;
-  createdAt: string;
-}
-
-interface AccountData {
-  id: string;
-  freelancerId: string;
-  name: string;
-  jss: number | null;
-  connectsBalance: number | null;
-  createdAt: string;
-  latestSnapshot: {
-    capturedAt: string;
-    startTimestamp: string | null;
-    endTimestamp: string | null;
-    jss: number | null;
-    connectsBalance: number | null;
-    funnel: { sent: number; viewed: number; interviewed: number; hired: number };
-    boosted: { sent: number; viewed: number; interviewed: number; hired: number };
-    organic: { sent: number; viewed: number; interviewed: number; hired: number };
-    viewRate: number;
-    interviewRate: number;
-    hireRate: number;
-  } | null;
-  snapshots: SnapshotSummary[];
-  snapshotCount: number;
-  jobs: JobData[];
-  jobCount: number;
-  proposals: ProposalData[];
-  proposalCount: number;
-}
+// Interfaces are imported from @/lib/overview-types above.
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -156,10 +35,6 @@ const COLORS = {
 function fmt(n: number): string {
   if (n >= 1000) return (n / 1000).toFixed(1) + "k";
   return String(n);
-}
-
-function fmtDate(d: string): string {
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function fmtDateTime(d: string): string {
@@ -198,6 +73,10 @@ const IconSend = () => (<svg {...iconProps}><line x1="22" y1="2" x2="11" y2="13"
 const IconRefresh = () => (<svg {...iconProps} className="w-4 h-4 shrink-0"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>);
 const IconArrowUp = () => (<svg {...iconProps} className="w-3 h-3 shrink-0"><polyline points="18 15 12 9 6 15"/></svg>);
 const IconArrowDown = () => (<svg {...iconProps} className="w-3 h-3 shrink-0"><polyline points="6 9 12 15 18 9"/></svg>);
+const IconUsers = () => (<svg {...iconProps}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>);
+const IconChart = () => (<svg {...iconProps}><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>);
+const IconShield = () => (<svg {...iconProps}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>);
+const IconSignOut = () => (<svg {...iconProps}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>);
 
 function StatCard({ label, value, sub, color, delta }: {
   label: string;
@@ -227,14 +106,6 @@ function StatCard({ label, value, sub, color, delta }: {
       <span className="text-2xl font-semibold tracking-tight text-gray-900" style={{ color: color || "#111827" }}>{value}</span>
       {sub && <span className="text-xs text-gray-400">{sub}</span>}
     </div>
-  );
-}
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-8 mb-4">
-      {children}
-    </h2>
   );
 }
 
@@ -570,53 +441,22 @@ function ProposalDrawer({ proposal, onClose }: { proposal: ProposalData; onClose
   );
 }
 
-// ─── Alert interface ──────────────────────────────────────────────────────────
-
-interface AlertData {
-  id: string;
-  accountId: string;
-  accountName: string;
-  type: string;
-  title: string;
-  senderName: string | null;
-  preview: string | null;
-  url: string | null;
-  roomId: string | null;
-  jobTitle: string | null;
-  date: string | null;
-  freelancerReplied: boolean;
-  lastMessageSender: string | null;
-  lastMessageText: string | null;
-  lastMessageTime: string | null;
-  needsAttention: boolean;
-  isUnread: boolean;
-  read: boolean;
-  replied: boolean;
-  notifiedAt: string;
-  remindedAt: string | null;
-  createdAt: string;
-}
+// AlertData moved to @/lib/overview-types
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
 
-type Tab = "overview" | "jobs" | "proposals" | "submissions" | "alerts" | "snapshots";
+type Tab =
+  | "overview"
+  | "jobs"
+  | "proposals"
+  | "submissions"
+  | "alerts"
+  | "snapshots"
+  | "team"
+  | "team-stats"
+  | "audit";
 
-// ─── Tooltip style (shared across charts) ────────────────────────────────────
-
-const CHART_TOOLTIP_STYLE = {
-  contentStyle: {
-    background: "#ffffff",
-    border: "1px solid #e5e7eb",
-    borderRadius: 8,
-    boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)",
-  },
-  labelStyle: { color: "#111827" },
-  itemStyle: { color: "#374151" },
-};
-
-const CHART_GRID_COLOR = "#f3f4f6";
-const CHART_AXIS_COLOR = "#9ca3af";
-const CHART_TICK_COLOR = "#9ca3af";
+// Tooltip style constants were moved to OverviewPanel
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
@@ -636,19 +476,28 @@ export default function Dashboard() {
   const [selectedJob, setSelectedJob] = useState<JobData | null>(null);
   const [selectedProposal, setSelectedProposal] = useState<ProposalData | null>(null);
   const [proposalFilter, setProposalFilter] = useState<string>("all");
-  const [overviewRange, setOverviewRange] = useState<"7d" | "30d" | "90d">("30d");
+  const [overviewRange, setOverviewRange] = useState<OverviewRange>("30d");
   const [alerts, setAlerts] = useState<AlertData[]>([]);
+  const [teamMembers, setTeamMembers] = useState<{ id: string; name: string; role: string }[]>([]);
+  const [memberFilter, setMemberFilter] = useState<string>("all");
 
   useEffect(() => {
     setLoading(true);
     Promise.all([
       fetch("/api/accounts").then((r) => r.json()),
       fetch("/api/alerts").then((r) => r.json()).catch(() => []),
+      fetch("/api/admin/team")
+        .then((r) => (r.ok ? r.json() : { members: [] }))
+        .catch(() => ({ members: [] })),
     ])
-      .then(([accountData, alertData]) => {
+      .then(([accountData, alertData, teamData]) => {
         if (accountData.error) throw new Error(accountData.error);
         setAccounts(accountData);
         if (Array.isArray(alertData)) setAlerts(alertData);
+        const members = Array.isArray(teamData?.members)
+          ? teamData.members.map((m: { id: string; name: string; role: string }) => ({ id: m.id, name: m.name, role: m.role }))
+          : [];
+        setTeamMembers(members);
         setError(null);
       })
       .catch((e) => setError(e.message))
@@ -671,142 +520,27 @@ export default function Dashboard() {
     return accounts.find((a) => a.id === selectedAccountId) || null;
   }, [accounts, selectedAccountId]);
 
-  const aggregated = useMemo(() => {
+  const overviewAccounts = useMemo(() => {
     const accs = selected ? [selected] : accounts;
+    return applyMemberFilter(accs, memberFilter === "all" ? null : memberFilter);
+  }, [accounts, selected, memberFilter]);
 
-    const latest = accs.reduce(
-      (acc, a) => {
-        const matching = a.snapshots
-          .filter((s) => s.range === overviewRange)
-          .sort((x, y) => new Date(y.capturedAt).getTime() - new Date(x.capturedAt).getTime());
-        const ls = matching[0];
-        if (!ls) return acc;
-        return {
-          sent: acc.sent + ls.sent,
-          viewed: acc.viewed + ls.viewed,
-          interviewed: acc.interviewed + ls.interviewed,
-          hired: acc.hired + ls.hired,
-          boostedSent: acc.boostedSent + ls.boostedSent,
-          organicSent: acc.organicSent + ls.organicSent,
-          boostedViewed: acc.boostedViewed + ls.boostedViewed,
-          organicViewed: acc.organicViewed + ls.organicViewed,
-          boostedInterviewed: acc.boostedInterviewed + ls.boostedInterviewed,
-          organicInterviewed: acc.organicInterviewed + ls.organicInterviewed,
-          boostedHired: acc.boostedHired + ls.boostedHired,
-          organicHired: acc.organicHired + ls.organicHired,
-          jss: ls.jss ?? acc.jss ?? a.jss,
-          connectsBalance: (acc.connectsBalance ?? 0) + (ls.connectsBalance ?? a.connectsBalance ?? 0),
-        };
-      },
-      {
-        sent: 0, viewed: 0, interviewed: 0, hired: 0,
-        boostedSent: 0, organicSent: 0,
-        boostedViewed: 0, organicViewed: 0,
-        boostedInterviewed: 0, organicInterviewed: 0,
-        boostedHired: 0, organicHired: 0,
-        jss: null as number | null,
-        connectsBalance: null as number | null,
-      }
-    );
-
-    const allSnapshots = accs.flatMap((a) => a.snapshots);
-    const snapshotsInRange = allSnapshots.filter((s) => s.range === overviewRange);
-    const viewRate = latest.sent > 0 ? Math.round((latest.viewed / latest.sent) * 1000) / 10 : 0;
-    const interviewRate = latest.sent > 0 ? Math.round((latest.interviewed / latest.sent) * 1000) / 10 : 0;
-    const hireRate = latest.sent > 0 ? Math.round((latest.hired / latest.sent) * 1000) / 10 : 0;
-    const viewToInterview = latest.viewed > 0 ? Math.round((latest.interviewed / latest.viewed) * 1000) / 10 : 0;
-    const interviewToHire = latest.interviewed > 0 ? Math.round((latest.hired / latest.interviewed) * 1000) / 10 : 0;
-
-    return { ...latest, viewRate, interviewRate, hireRate, viewToInterview, interviewToHire, allSnapshots, snapshotsInRange };
-  }, [accounts, selected, overviewRange]);
-
-  // Deltas: compare the latest snapshot in range to the one before it (same range)
-  const deltas = useMemo(() => {
-    const accs = selected ? [selected] : accounts;
-    const cur = { sent: 0, viewed: 0, interviewed: 0, hired: 0 };
-    const prev = { sent: 0, viewed: 0, interviewed: 0, hired: 0 };
-    let anyPrev = false;
-    for (const a of accs) {
-      const matching = a.snapshots
-        .filter((s) => s.range === overviewRange)
-        .sort((x, y) => new Date(y.capturedAt).getTime() - new Date(x.capturedAt).getTime());
-      if (matching.length < 2) continue;
-      anyPrev = true;
-      cur.sent += matching[0].sent;
-      cur.viewed += matching[0].viewed;
-      cur.interviewed += matching[0].interviewed;
-      cur.hired += matching[0].hired;
-      prev.sent += matching[1].sent;
-      prev.viewed += matching[1].viewed;
-      prev.interviewed += matching[1].interviewed;
-      prev.hired += matching[1].hired;
-    }
-    if (!anyPrev) return null;
-    const pct = (c: number, p: number) => (p === 0 ? null : Math.round(((c - p) / p) * 100));
-    return {
-      sent: pct(cur.sent, prev.sent),
-      viewed: pct(cur.viewed, prev.viewed),
-      interviewed: pct(cur.interviewed, prev.interviewed),
-      hired: pct(cur.hired, prev.hired),
-    };
-  }, [accounts, selected, overviewRange]);
-
-  const timeSeriesData = useMemo(() => {
-    const accs = selected ? [selected] : accounts;
-    const byDate = new Map<string, SnapshotSummary & { count: number }>();
-    for (const acc of accs) {
-      for (const s of acc.snapshots) {
-        if (s.range !== overviewRange) continue;
-        const dateKey = fmtDate(s.capturedAt);
-        const existing = byDate.get(dateKey);
-        if (existing) {
-          existing.sent += s.sent;
-          existing.viewed += s.viewed;
-          existing.interviewed += s.interviewed;
-          existing.hired += s.hired;
-          existing.boostedSent += s.boostedSent;
-          existing.organicSent += s.organicSent;
-          existing.boostedHired += s.boostedHired;
-          existing.organicHired += s.organicHired;
-          existing.jss = s.jss ?? existing.jss;
-          existing.connectsBalance = (existing.connectsBalance ?? 0) + (s.connectsBalance ?? 0);
-          existing.count++;
-        } else {
-          byDate.set(dateKey, { ...s, count: 1 });
-        }
-      }
-    }
-    return Array.from(byDate.entries()).map(([date, d]) => ({
-      date,
-      sent: d.sent,
-      viewed: d.viewed,
-      interviewed: d.interviewed,
-      hired: d.hired,
-      boostedSent: d.boostedSent,
-      organicSent: d.organicSent,
-      jss: d.jss,
-      connectsBalance: d.connectsBalance,
-      viewRate: d.sent > 0 ? Math.round((d.viewed / d.sent) * 1000) / 10 : 0,
-      hireRate: d.sent > 0 ? Math.round((d.hired / d.sent) * 1000) / 10 : 0,
-    }));
-  }, [accounts, selected, overviewRange]);
-
-  const funnelData = useMemo(() => [
-    { stage: "Sent", total: aggregated.sent, boosted: aggregated.boostedSent, organic: aggregated.organicSent },
-    { stage: "Viewed", total: aggregated.viewed, boosted: aggregated.boostedViewed, organic: aggregated.organicViewed },
-    { stage: "Interviewed", total: aggregated.interviewed, boosted: aggregated.boostedInterviewed, organic: aggregated.organicInterviewed },
-    { stage: "Hired", total: aggregated.hired, boosted: aggregated.boostedHired, organic: aggregated.organicHired },
-  ], [aggregated]);
+  const filteredSnapshots = useMemo(
+    () => overviewAccounts.flatMap((a) => a.snapshots),
+    [overviewAccounts],
+  );
 
   const allJobs = useMemo(() => {
     const accs = selected ? [selected] : accounts;
-    return accs.flatMap((a) => a.jobs || []);
-  }, [accounts, selected]);
+    const rows = accs.flatMap((a) => a.jobs || []);
+    return memberFilter === "all" ? rows : rows.filter((j) => j.capturedBy?.id === memberFilter);
+  }, [accounts, selected, memberFilter]);
 
   const allProposals = useMemo(() => {
     const accs = selected ? [selected] : accounts;
-    return accs.flatMap((a) => a.proposals || []);
-  }, [accounts, selected]);
+    const rows = accs.flatMap((a) => a.proposals || []);
+    return memberFilter === "all" ? rows : rows.filter((p) => p.capturedBy?.id === memberFilter);
+  }, [accounts, selected, memberFilter]);
 
   const submissions = useMemo(
     () => allProposals
@@ -852,8 +586,11 @@ export default function Dashboard() {
   );
 
   const scopedAlerts = useMemo(
-    () => (selected ? alerts.filter((a) => a.accountId === selected.id) : alerts),
-    [alerts, selected]
+    () => {
+      const base = selected ? alerts.filter((a) => a.accountId === selected.id) : alerts;
+      return memberFilter === "all" ? base : base.filter((a) => a.capturedBy?.id === memberFilter);
+    },
+    [alerts, selected, memberFilter]
   );
 
   const unreadAlerts = useMemo(() => scopedAlerts.filter((a) => !a.read && !a.freelancerReplied && a.needsAttention), [scopedAlerts]);
@@ -869,6 +606,11 @@ export default function Dashboard() {
   const alertCounts = useMemo(() => ({
     messages: alertsByType.message?.filter((a) => !a.read).length || 0,
   }), [alertsByType]);
+
+  const signOutAdmin = useCallback(async () => {
+    await fetch("/api/admin/logout", { method: "POST" });
+    window.location.href = "/admin/login";
+  }, []);
 
   const dismissAlert = useCallback((id: string) => {
     fetch("/api/alerts", {
@@ -945,7 +687,7 @@ export default function Dashboard() {
     { id: "proposals", label: "Proposals", count: allProposals.length, icon: <IconFile /> },
     { id: "submissions", label: "Submissions", count: submissions.length, icon: <IconSend /> },
     { id: "alerts", label: "Alerts", count: unreadAlerts.length, icon: <IconBell /> },
-    { id: "snapshots", label: "Snapshots", count: aggregated.allSnapshots.length, icon: <IconCamera /> },
+    { id: "snapshots", label: "Snapshots", count: filteredSnapshots.length, icon: <IconCamera /> },
   ];
 
   // ── Proposal section badge helper ──────────────────────────────────────────
@@ -960,7 +702,16 @@ export default function Dashboard() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
-  const activeTabLabel = TABS.find((t) => t.id === activeTab)?.label ?? "Overview";
+  const ADMIN_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: "team", label: "Team", icon: <IconUsers /> },
+    { id: "team-stats", label: "Team Stats", icon: <IconChart /> },
+    { id: "audit", label: "Audit Log", icon: <IconShield /> },
+  ];
+
+  const activeTabLabel =
+    TABS.find((t) => t.id === activeTab)?.label ??
+    ADMIN_TABS.find((t) => t.id === activeTab)?.label ??
+    "Overview";
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 flex">
@@ -1002,17 +753,63 @@ export default function Dashboard() {
             );
           })}
         </nav>
-        <div className="p-3 border-t border-gray-200">
-          <label className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold px-1">Account</label>
-          <select
-            value={selectedAccountId}
-            onChange={(e) => setSelectedAccountId(e.target.value)}
-            className="w-full mt-1.5 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
-          >
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.name}</option>
-            ))}
-          </select>
+        <div className="px-3 py-3 border-t border-gray-200">
+          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold px-3 mb-2">Admin</div>
+          <nav className="space-y-1">
+            {ADMIN_TABS.map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                    isActive
+                      ? "bg-teal-50 text-teal-700 font-medium"
+                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                  }`}
+                >
+                  <span className={isActive ? "text-teal-600" : "text-gray-400"}>{tab.icon}</span>
+                  <span className="flex-1 text-left">{tab.label}</span>
+                </button>
+              );
+            })}
+            <button
+              onClick={signOutAdmin}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors text-rose-600 hover:bg-rose-50"
+            >
+              <span className="text-rose-400"><IconSignOut /></span>
+              <span className="flex-1 text-left">Sign out</span>
+            </button>
+          </nav>
+        </div>
+        <div className="p-3 border-t border-gray-200 space-y-3">
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold px-1">Account</label>
+            <select
+              value={selectedAccountId}
+              onChange={(e) => setSelectedAccountId(e.target.value)}
+              className="w-full mt-1.5 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+            >
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+          {teamMembers.length > 0 && (
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold px-1">Captured by</label>
+              <select
+                value={memberFilter}
+                onChange={(e) => setMemberFilter(e.target.value)}
+                className="w-full mt-1.5 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+              >
+                <option value="all">All team members</option>
+                {teamMembers.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name} ({m.role == 'admin' ? 'Admin' : 'Bidder'})</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -1042,188 +839,12 @@ export default function Dashboard() {
 
         {/* ── Overview Tab ─────────────────────────────────────────────────── */}
         {activeTab === "overview" && (
-          <div className="py-6">
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">Proposal performance</h2>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {aggregated.snapshotsInRange.length} snapshot{aggregated.snapshotsInRange.length !== 1 ? "s" : ""} captured in this range
-                </p>
-              </div>
-              <select
-                value={overviewRange}
-                onChange={(e) => setOverviewRange(e.target.value as "7d" | "30d" | "90d")}
-                className="text-xs border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer shadow-sm"
-              >
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-                <option value="90d">Last 90 days</option>
-              </select>
-            </div>
-            {/* Stat Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <StatCard
-                label="Proposals Sent"
-                value={fmt(aggregated.sent)}
-                color={COLORS.blue}
-                delta={deltas?.sent}
-              />
-              <StatCard
-                label="Viewed"
-                value={fmt(aggregated.viewed)}
-                sub={`${aggregated.viewRate}% view rate`}
-                color={COLORS.cyan}
-                delta={deltas?.viewed}
-              />
-              <StatCard
-                label="Interviewed"
-                value={fmt(aggregated.interviewed)}
-                sub={`${aggregated.interviewRate}% of sent`}
-                color={COLORS.purple}
-                delta={deltas?.interviewed}
-              />
-              <StatCard
-                label="Hired"
-                value={fmt(aggregated.hired)}
-                sub={`${aggregated.hireRate}% hire rate`}
-                color={COLORS.green}
-                delta={deltas?.hired}
-              />
-              {aggregated.jss !== null && (
-                <StatCard
-                  label="JSS"
-                  value={`${aggregated.jss}%`}
-                  color={aggregated.jss >= 90 ? COLORS.green : aggregated.jss >= 70 ? COLORS.amber : COLORS.rose}
-                />
-              )}
-              {aggregated.connectsBalance !== null && aggregated.connectsBalance > 0 && (
-                <StatCard label="Connects" value={fmt(aggregated.connectsBalance)} color={COLORS.amber} />
-              )}
-              <StatCard
-                label="Data Points"
-                value={aggregated.snapshotsInRange.length}
-                sub={`in last ${overviewRange === "7d" ? "7" : overviewRange === "30d" ? "30" : "90"} days`}
-              />
-            </div>
-
-            {/* Conversion Pipeline */}
-            <SectionTitle>Conversion Pipeline</SectionTitle>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                { label: "Sent → Viewed", value: `${aggregated.viewRate}%`, color: COLORS.cyan },
-                { label: "Viewed → Interview", value: `${aggregated.viewToInterview}%`, color: COLORS.purple },
-                { label: "Interview → Hired", value: `${aggregated.interviewToHire}%`, color: COLORS.green },
-                { label: "Overall Hire Rate", value: `${aggregated.hireRate}%`, color: COLORS.teal },
-              ].map((item) => (
-                <div key={item.label} className="bg-white border border-gray-200 rounded-xl p-4 text-center shadow-sm">
-                  <div className="text-xs text-gray-500 mb-1">{item.label}</div>
-                  <div className="text-xl font-bold" style={{ color: item.color }}>{item.value}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Proposal Funnel Chart */}
-            <div className="mt-6">
-              <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-                <h3 className="text-sm font-semibold text-gray-600 mb-4">Proposal Funnel</h3>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={funnelData} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
-                    <XAxis type="number" stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 12 }} />
-                    <YAxis type="category" dataKey="stage" stroke={CHART_AXIS_COLOR} tick={{ fill: "#374151", fontSize: 13 }} width={90} />
-                    <Tooltip {...CHART_TOOLTIP_STYLE} />
-                    <Bar dataKey="total" name="Count" fill={COLORS.teal} radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Time Series Charts */}
-            {timeSeriesData.length > 1 && (
-              <>
-                <SectionTitle>Trends Over Time</SectionTitle>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-                    <h3 className="text-sm font-semibold text-gray-600 mb-4">Proposals Over Time</h3>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <AreaChart data={timeSeriesData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
-                        <XAxis dataKey="date" stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 11 }} />
-                        <YAxis stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 12 }} />
-                        <Tooltip {...CHART_TOOLTIP_STYLE} />
-                        <Legend />
-                        <Area type="monotone" dataKey="sent" name="Sent" stroke={COLORS.blue} fill={COLORS.blue} fillOpacity={0.08} />
-                        <Area type="monotone" dataKey="viewed" name="Viewed" stroke={COLORS.cyan} fill={COLORS.cyan} fillOpacity={0.08} />
-                        <Area type="monotone" dataKey="interviewed" name="Interviewed" stroke={COLORS.purple} fill={COLORS.purple} fillOpacity={0.08} />
-                        <Area type="monotone" dataKey="hired" name="Hired" stroke={COLORS.green} fill={COLORS.green} fillOpacity={0.08} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-                    <h3 className="text-sm font-semibold text-gray-600 mb-4">Conversion Rates Over Time</h3>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <LineChart data={timeSeriesData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
-                        <XAxis dataKey="date" stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 11 }} />
-                        <YAxis stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 12 }} unit="%" />
-                        <Tooltip {...CHART_TOOLTIP_STYLE} />
-                        <Legend />
-                        <Line type="monotone" dataKey="viewRate" name="View Rate" stroke={COLORS.cyan} strokeWidth={2} dot={{ r: 3 }} />
-                        <Line type="monotone" dataKey="hireRate" name="Hire Rate" stroke={COLORS.green} strokeWidth={2} dot={{ r: 3 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  {timeSeriesData.some((d) => d.jss !== null) && (
-                    <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-                      <h3 className="text-sm font-semibold text-gray-600 mb-4">JSS Trend</h3>
-                      <ResponsiveContainer width="100%" height={280}>
-                        <LineChart data={timeSeriesData.filter((d) => d.jss !== null)}>
-                          <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
-                          <XAxis dataKey="date" stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 11 }} />
-                          <YAxis stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 12 }} domain={[0, 100]} unit="%" />
-                          <Tooltip {...CHART_TOOLTIP_STYLE} />
-                          <Line type="monotone" dataKey="jss" name="JSS" stroke={COLORS.green} strokeWidth={2} dot={{ r: 3 }} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-
-            {/* Per-Account Comparison */}
-            {!selected && accounts.length > 1 && (
-              <>
-                <SectionTitle>Per-Account Comparison</SectionTitle>
-                <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-                  <ResponsiveContainer width="100%" height={Math.max(200, accounts.length * 60)}>
-                    <BarChart
-                      data={accounts.map((a) => ({
-                        name: a.name,
-                        sent: a.latestSnapshot?.funnel.sent ?? 0,
-                        viewed: a.latestSnapshot?.funnel.viewed ?? 0,
-                        interviewed: a.latestSnapshot?.funnel.interviewed ?? 0,
-                        hired: a.latestSnapshot?.funnel.hired ?? 0,
-                      }))}
-                      layout="vertical"
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
-                      <XAxis type="number" stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 12 }} />
-                      <YAxis type="category" dataKey="name" stroke={CHART_AXIS_COLOR} tick={{ fill: "#374151", fontSize: 13 }} width={120} />
-                      <Tooltip {...CHART_TOOLTIP_STYLE} />
-                      <Legend />
-                      <Bar dataKey="sent" name="Sent" fill={COLORS.blue} />
-                      <Bar dataKey="viewed" name="Viewed" fill={COLORS.cyan} />
-                      <Bar dataKey="interviewed" name="Interviewed" fill={COLORS.purple} />
-                      <Bar dataKey="hired" name="Hired" fill={COLORS.green} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </>
-            )}
-          </div>
+          <OverviewPanel
+            accounts={overviewAccounts}
+            range={overviewRange}
+            onRangeChange={setOverviewRange}
+            showAccountComparison={!selected}
+          />
         )}
 
         {/* ── Jobs Tab ─────────────────────────────────────────────────────── */}
@@ -1739,11 +1360,11 @@ export default function Dashboard() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
                 Snapshot History
-                <span className="ml-2 text-gray-400 font-normal normal-case tracking-normal">({aggregated.allSnapshots.length})</span>
+                <span className="ml-2 text-gray-400 font-normal normal-case tracking-normal">({filteredSnapshots.length})</span>
               </h2>
             </div>
 
-            {aggregated.allSnapshots.length === 0 ? (
+            {filteredSnapshots.length === 0 ? (
               <div className="border border-gray-200 rounded-xl py-16 text-center text-gray-400 text-sm">
                 No snapshots recorded yet
               </div>
@@ -1764,7 +1385,7 @@ export default function Dashboard() {
                       <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Hire %</th>
                       <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Boosted</th>
                       <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Organic</th>
-                      {aggregated.allSnapshots.some((s) => s.jss !== null) && (
+                      {filteredSnapshots.some((s) => s.jss !== null) && (
                         <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">JSS</th>
                       )}
                     </tr>
@@ -1785,7 +1406,7 @@ export default function Dashboard() {
                           <td className="px-4 py-2.5 text-right text-gray-500 text-xs">{s.hireRate}%</td>
                           <td className="px-4 py-2.5 text-right" style={{ color: COLORS.amber }}>{s.boostedSent}</td>
                           <td className="px-4 py-2.5 text-right" style={{ color: COLORS.teal }}>{s.organicSent}</td>
-                          {aggregated.allSnapshots.some((snap) => snap.jss !== null) && (
+                          {filteredSnapshots.some((snap) => snap.jss !== null) && (
                             <td className="px-4 py-2.5 text-right text-gray-600 text-xs">
                               {s.jss !== null ? `${s.jss}%` : "—"}
                             </td>
@@ -1800,9 +1421,18 @@ export default function Dashboard() {
           </div>
         )}
 
+          {/* ── Team Tab ─────────────────────────────────────────────────────── */}
+          {activeTab === "team" && <TeamView />}
+
+          {/* ── Team Stats Tab ───────────────────────────────────────────────── */}
+          {activeTab === "team-stats" && <TeamStatsView />}
+
+          {/* ── Audit Tab ────────────────────────────────────────────────────── */}
+          {activeTab === "audit" && <AuditView />}
+
           {/* ── Footer ───────────────────────────────────────────────────────── */}
           <div className="text-center text-xs text-gray-400 border-t border-gray-100 mt-4 py-4">
-            Upwork Tracker — {accounts.length} account{accounts.length !== 1 ? "s" : ""} — {aggregated.allSnapshots.length} snapshots
+            Upwork Tracker — {accounts.length} account{accounts.length !== 1 ? "s" : ""} — {filteredSnapshots.length} snapshots
             {(() => {
               const j = accounts.reduce((s, a) => s + (a.jobCount || 0), 0);
               return j > 0 ? ` — ${j} jobs tracked` : "";

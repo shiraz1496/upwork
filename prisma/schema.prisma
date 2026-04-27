@@ -6,87 +6,194 @@ datasource db {
   provider = "postgresql"
 }
 
+enum Role {
+  admin
+  bidder
+}
+
+enum MemberStatus {
+  active
+  inactive
+}
+
+enum CoverageEntityType {
+  offer
+  message_thread
+  proposal
+}
+
+model TeamMember {
+  id        String       @id @default(cuid())
+  name      String
+  email     String       @unique
+  role      Role         @default(bidder)
+  status    MemberStatus @default(active)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  tokens            ExtensionToken[]
+  coverageItems     CoverageItem[]
+  notesAuthored     CoachingNote[]   @relation("NoteAuthor")
+  notesReceived     CoachingNote[]   @relation("NoteRecipient")
+  auditEvents       AuditLog[]       @relation("AuditActor")
+  capturedSnapshots Snapshot[]
+  capturedProposals Proposal[]
+  capturedJobs      Job[]
+  capturedAlerts    Alert[]
+}
+
+model ExtensionToken {
+  id         String     @id @default(cuid())
+  memberId   String
+  member     TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  tokenHash  String     @unique
+  label      String?
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime   @default(now())
+
+  @@index([memberId])
+}
+
+model CoverageItem {
+  id           String             @id @default(cuid())
+  memberId     String
+  member       TeamMember         @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  accountId    String
+  account      Account            @relation(fields: [accountId], references: [id])
+  entityType   CoverageEntityType
+  entityId     String
+  openUrl      String?
+  reasonTags   String[]
+  referencedAt DateTime           @default(now())
+  capturedAt   DateTime?
+  priority     Int                @default(0)
+
+  @@unique([memberId, accountId, entityType, entityId])
+  @@index([memberId, capturedAt])
+}
+
+model CoachingNote {
+  id          String     @id @default(cuid())
+  authorId    String
+  author      TeamMember @relation("NoteAuthor", fields: [authorId], references: [id])
+  recipientId String
+  recipient   TeamMember @relation("NoteRecipient", fields: [recipientId], references: [id])
+  proposalId  String?
+  proposal    Proposal?  @relation(fields: [proposalId], references: [id])
+  body        String     @db.Text
+  readAt      DateTime?
+  createdAt   DateTime   @default(now())
+
+  @@index([recipientId, readAt])
+  @@index([proposalId])
+}
+
+model AuditLog {
+  id          String      @id @default(cuid())
+  event       String
+  actorId     String?
+  actor       TeamMember? @relation("AuditActor", fields: [actorId], references: [id])
+  subjectType String?
+  subjectId   String?
+  meta        Json?
+  createdAt   DateTime    @default(now())
+
+  @@index([event, createdAt])
+  @@index([actorId, createdAt])
+}
+
 model Account {
-  id              String     @id @default(cuid())
-  freelancerId    String     @unique
+  id              String         @id @default(cuid())
+  freelancerId    String         @unique
   name            String
   jss             Float?
   connectsBalance Int?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
   snapshots       Snapshot[]
   proposals       Proposal[]
   jobs            Job[]
   alerts          Alert[]
+  coverageItems   CoverageItem[]
 }
 
 model Alert {
-  id                 String    @id @default(cuid())
-  accountId          String
-  account            Account   @relation(fields: [accountId], references: [id])
-  type               String    // "message"
-  title              String
-  senderName         String?
-  preview            String?
-  url                String?
-  roomId             String?
-  jobTitle           String?
-  date               String?
-  freelancerReplied  Boolean   @default(false)
-  lastMessageSender  String?
-  lastMessageText    String?
-  lastMessageTime    String?
-  needsAttention     Boolean   @default(false)
-  isUnread           Boolean   @default(false)
-  read               Boolean   @default(false)
-  replied            Boolean   @default(false)
-  notifiedAt         DateTime  @default(now())
-  remindedAt         DateTime?
-  createdAt          DateTime  @default(now())
+  id                String    @id @default(cuid())
+  accountId         String
+  account           Account   @relation(fields: [accountId], references: [id])
+  type              String
+  title             String
+  senderName        String?
+  preview           String?
+  url               String?
+  roomId            String?
+  jobTitle          String?
+  date              String?
+  freelancerReplied Boolean   @default(false)
+  lastMessageSender String?
+  lastMessageText   String?
+  lastMessageTime   String?
+  needsAttention    Boolean   @default(false)
+  isUnread          Boolean   @default(false)
+  read              Boolean   @default(false)
+  replied           Boolean   @default(false)
+  notifiedAt        DateTime  @default(now())
+  remindedAt        DateTime?
+  createdAt         DateTime  @default(now())
+
+  capturedByUserId String?
+  capturedByUser   TeamMember? @relation(fields: [capturedByUserId], references: [id])
+  capturedAt       DateTime?
 
   @@index([accountId])
   @@index([type])
   @@index([roomId])
+  @@index([capturedByUserId])
 }
 
 model Snapshot {
-  id                            String   @id @default(cuid())
-  accountId                     String
-  account                       Account  @relation(fields: [accountId], references: [id])
-  capturedAt                    DateTime
-  startTimestamp                String?
-  endTimestamp                  String?
-  range                         String?
-  jss                           Float?
-  connectsBalance               Int?
-  proposalsSentBoosted          Int      @default(0)
-  proposalsSentOrganic          Int      @default(0)
-  proposalsViewedBoosted        Int      @default(0)
-  proposalsViewedOrganic        Int      @default(0)
-  proposalsInterviewedBoosted   Int      @default(0)
-  proposalsInterviewedOrganic   Int      @default(0)
-  proposalsHiredBoosted         Int      @default(0)
-  proposalsHiredOrganic         Int      @default(0)
-  seriesJson                    String?
-  createdAt                     DateTime @default(now())
+  id                          String   @id @default(cuid())
+  accountId                   String
+  account                     Account  @relation(fields: [accountId], references: [id])
+  capturedAt                  DateTime
+  startTimestamp              String?
+  endTimestamp                String?
+  range                       String?
+  jss                         Float?
+  connectsBalance             Int?
+  proposalsSentBoosted        Int      @default(0)
+  proposalsSentOrganic        Int      @default(0)
+  proposalsViewedBoosted      Int      @default(0)
+  proposalsViewedOrganic      Int      @default(0)
+  proposalsInterviewedBoosted Int      @default(0)
+  proposalsInterviewedOrganic Int      @default(0)
+  proposalsHiredBoosted       Int      @default(0)
+  proposalsHiredOrganic       Int      @default(0)
+  seriesJson                  String?
+  createdAt                   DateTime @default(now())
+
+  capturedByUserId String?
+  capturedByUser   TeamMember? @relation(fields: [capturedByUserId], references: [id])
 
   @@index([accountId, capturedAt])
+  @@index([capturedByUserId])
 }
 
 model Job {
-  id                String   @id @default(cuid())
-  accountId         String
-  account           Account  @relation(fields: [accountId], references: [id])
-  url               String?
-  title             String
-  description       String?  @db.Text
-  budget            String?
-  jobType           String?
-  category          String?
-  skills            String[]
-  experienceLevel   String?
-  projectType       String?
-  contractToHire    Boolean  @default(false)
+  id                    String   @id @default(cuid())
+  accountId             String
+  account               Account  @relation(fields: [accountId], references: [id])
+  url                   String?
+  title                 String
+  description           String?  @db.Text
+  budget                String?
+  jobType               String?
+  category              String?
+  skills                String[]
+  experienceLevel       String?
+  projectType           String?
+  contractToHire        Boolean  @default(false)
   clientPaymentVerified Boolean  @default(false)
   clientPhoneVerified   Boolean  @default(false)
   clientRating          Float?
@@ -105,60 +212,72 @@ model Job {
   clientCompanySize     String?
   jobLocation           String?
   connectsRequired      Int?
-  postedTime        String?
-  viewedAt          DateTime @default(now())
-  createdAt         DateTime @default(now())
+  postedTime            String?
+  viewedAt              DateTime @default(now())
+  createdAt             DateTime @default(now())
+
+  capturedByUserId String?
+  capturedByUser   TeamMember? @relation(fields: [capturedByUserId], references: [id])
+  capturedAt       DateTime?
 
   @@unique([accountId, url])
   @@index([accountId])
+  @@index([capturedByUserId])
 }
 
 model Proposal {
-  id             String    @id @default(cuid())
-  accountId      String
-  account        Account   @relation(fields: [accountId], references: [id])
-  jobTitle       String?
-  jobUrl         String?
-  jobCategory    String?
-  status         String?
-  section        String?
-  boosted        Boolean   @default(false)
-  boostStatus    String?
-  viewedByClient Boolean   @default(false)
-  coverLetter    String?   @db.Text
-  clientNote     String?   @db.Text
-  clientName     String?
-  clientCountry  String?
-  connectsSpent  Int?
-  submittedAt    DateTime?
-  submittedViaExtension Boolean @default(false)
-  profileUsed    String?
-  proposedRate       String?
-  receivedRate       String?
-  rateIncrease       String?
-  bidConnects        Int?
-  jobBudget          String?
-  jobHoursPerWeek    String?
-  jobDuration        String?
-  jobExperienceLevel String?
-  jobDescription     String?   @db.Text
-  jobSkills          String[]
-  jobPostedDate      String?
-  clientRating       Float?
-  clientReviews      Int?
-  clientReviewScore  String?
-  clientCity         String?
-  clientJobsPosted   Int?
-  clientHireRate     Int?
-  clientOpenJobs     Int?
-  clientTotalSpent   String?
-  clientHires        Int?
-  clientActiveHires  Int?
-  clientAvgRate      String?
-  clientTotalHours   String?
-  clientMemberSince  String?
-  clientPaymentVerified Boolean @default(false)
-  createdAt      DateTime  @default(now())
+  id                    String    @id @default(cuid())
+  accountId             String
+  account               Account   @relation(fields: [accountId], references: [id])
+  jobTitle              String?
+  jobUrl                String?
+  jobCategory           String?
+  status                String?
+  section               String?
+  boosted               Boolean   @default(false)
+  boostStatus           String?
+  viewedByClient        Boolean   @default(false)
+  coverLetter           String?   @db.Text
+  clientNote            String?   @db.Text
+  clientName            String?
+  clientCountry         String?
+  connectsSpent         Int?
+  submittedAt           DateTime?
+  submittedViaExtension Boolean   @default(false)
+  profileUsed           String?
+  proposedRate          String?
+  receivedRate          String?
+  rateIncrease          String?
+  bidConnects           Int?
+  jobBudget             String?
+  jobHoursPerWeek       String?
+  jobDuration           String?
+  jobExperienceLevel    String?
+  jobDescription        String?   @db.Text
+  jobSkills             String[]
+  jobPostedDate         String?
+  clientRating          Float?
+  clientReviews         Int?
+  clientReviewScore     String?
+  clientCity            String?
+  clientJobsPosted      Int?
+  clientHireRate        Int?
+  clientOpenJobs        Int?
+  clientTotalSpent      String?
+  clientHires           Int?
+  clientActiveHires     Int?
+  clientAvgRate         String?
+  clientTotalHours      String?
+  clientMemberSince     String?
+  clientPaymentVerified Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+
+  capturedByUserId String?
+  capturedByUser   TeamMember? @relation(fields: [capturedByUserId], references: [id])
+  capturedAt       DateTime?
+
+  coachingNotes CoachingNote[]
 
   @@index([accountId])
+  @@index([capturedByUserId])
 }
