@@ -4,6 +4,8 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { TeamView } from "@/components/admin/TeamView";
 import { TeamStatsView } from "@/components/admin/TeamStatsView";
 import { AuditView } from "@/components/admin/AuditView";
+import { ProfileActivityView } from "@/components/admin/ProfileActivityView";
+import { CoveragePagesView } from "@/components/admin/CoveragePagesView";
 import { OverviewPanel } from "@/components/OverviewPanel";
 import type {
   AccountData,
@@ -77,6 +79,7 @@ const IconUsers = () => (<svg {...iconProps}><path d="M16 21v-2a4 4 0 0 0-4-4H6a
 const IconChart = () => (<svg {...iconProps}><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>);
 const IconShield = () => (<svg {...iconProps}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>);
 const IconSignOut = () => (<svg {...iconProps}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>);
+const IconCompass = () => (<svg {...iconProps}><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>);
 
 function StatCard({ label, value, sub, color, delta }: {
   label: string;
@@ -262,6 +265,35 @@ function JobDrawer({ job, onClose }: { job: JobData; onClose: () => void }) {
 }
 
 function ProposalDrawer({ proposal, onClose }: { proposal: ProposalData; onClose: () => void }) {
+  const [noteBody, setNoteBody] = useState("");
+  const [noteSending, setNoteSending] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [noteSent, setNoteSent] = useState(false);
+
+  async function submitNote(e: React.FormEvent) {
+    e.preventDefault();
+    if (!proposal.capturedBy) return;
+    setNoteSending(true);
+    setNoteError(null);
+    try {
+      const res = await fetch("/api/admin/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipientId: proposal.capturedBy.id, proposalId: proposal.id, body: noteBody }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP ${res.status}`);
+      }
+      setNoteSent(true);
+      setNoteBody("");
+    } catch (e) {
+      setNoteError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setNoteSending(false);
+    }
+  }
+
   const sectionVariant = (sec: string | null): "teal" | "blue" | "purple" | "green" | "gray" => {
     if (!sec) return "gray";
     if (sec.toLowerCase().includes("offer")) return "teal";
@@ -270,7 +302,6 @@ function ProposalDrawer({ proposal, onClose }: { proposal: ProposalData; onClose
     if (sec.toLowerCase().includes("submitted")) return "blue";
     return "gray";
   };
-  console.log("proposal", proposal);
 
   return (
     <>
@@ -435,6 +466,47 @@ function ProposalDrawer({ proposal, onClose }: { proposal: ProposalData; onClose
               </svg>
             </a>
           )}
+
+          {/* Coaching Note */}
+          {proposal.capturedBy && (
+            <section>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                Leave a coaching note for {proposal.capturedBy.name}
+              </h3>
+              {noteSent ? (
+                <div className="rounded-lg bg-green-50 border border-green-100 p-3 text-sm text-green-700">
+                  Note sent to {proposal.capturedBy.name}.
+                  <button
+                    onClick={() => setNoteSent(false)}
+                    className="ml-2 underline text-green-700 hover:text-green-800"
+                  >
+                    Send another
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={submitNote} className="space-y-2">
+                  <textarea
+                    value={noteBody}
+                    onChange={(e) => setNoteBody(e.target.value)}
+                    required
+                    rows={4}
+                    placeholder="Write your note. Keep it actionable."
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none"
+                  />
+                  {noteError && (
+                    <div className="rounded-lg bg-rose-50 border border-rose-100 p-2 text-xs text-rose-700">{noteError}</div>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={noteSending || noteBody.trim().length === 0}
+                    className="px-4 py-2 bg-teal-500 hover:bg-teal-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                  >
+                    {noteSending ? "Sending…" : "Send note"}
+                  </button>
+                </form>
+              )}
+            </section>
+          )}
         </div>
       </div>
     </>
@@ -454,6 +526,8 @@ type Tab =
   | "snapshots"
   | "team"
   | "team-stats"
+  | "coverage-pages"
+  | "profile-activity"
   | "audit";
 
 // Tooltip style constants were moved to OverviewPanel
@@ -476,10 +550,12 @@ export default function Dashboard() {
   const [selectedJob, setSelectedJob] = useState<JobData | null>(null);
   const [selectedProposal, setSelectedProposal] = useState<ProposalData | null>(null);
   const [proposalFilter, setProposalFilter] = useState<string>("all");
-  const [overviewRange, setOverviewRange] = useState<OverviewRange>("30d");
+  const [overviewRange, setOverviewRange] = useState<OverviewRange>("7d");
   const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string; role: string }[]>([]);
   const [memberFilter, setMemberFilter] = useState<string>("all");
+  const [coverageAlert, setCoverageAlert] = useState<{members: {id:string;name:string;pct:number}[]} | null>(null);
+  const [coverageAlertDismissed, setCoverageAlertDismissed] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -502,6 +578,17 @@ export default function Dashboard() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+
+    fetch("/api/admin/coverage-stats")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return;
+        const low = (data.members || []).filter((m: {role:string;status:string;pct:number}) =>
+          m.role === "bidder" && m.status === "active" && m.pct < 60
+        );
+        if (low.length > 0) setCoverageAlert({ members: low });
+      })
+      .catch(() => {});
   }, [refreshKey]);
 
   // Auto-refresh alerts every 30 seconds
@@ -705,6 +792,8 @@ export default function Dashboard() {
   const ADMIN_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "team", label: "Team", icon: <IconUsers /> },
     { id: "team-stats", label: "Team Stats", icon: <IconChart /> },
+    { id: "coverage-pages", label: "Coverage Pages", icon: <IconCompass /> },
+    { id: "profile-activity", label: "Profile Activity", icon: <IconCamera /> },
     { id: "audit", label: "Audit Log", icon: <IconShield /> },
   ];
 
@@ -718,6 +807,41 @@ export default function Dashboard() {
       {/* Drawers */}
       {selectedJob && <JobDrawer job={selectedJob} onClose={closeDrawer} />}
       {selectedProposal && <ProposalDrawer proposal={selectedProposal} onClose={closeDrawer} />}
+
+      {/* Coverage alert modal */}
+      {coverageAlert && !coverageAlertDismissed && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setCoverageAlertDismissed(true)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-500 shrink-0">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/>
+                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Low coverage alert</h3>
+                <p className="text-sm text-gray-500 mt-0.5">The following bidders have opened fewer than 60% of required pages.</p>
+              </div>
+            </div>
+            <ul className="space-y-2 mb-5">
+              {coverageAlert.members.map(m => (
+                <li key={m.id} className="flex items-center justify-between px-3 py-2 bg-rose-50 border border-rose-100 rounded-lg">
+                  <span className="text-sm font-medium text-gray-900">{m.name}</span>
+                  <span className="text-sm font-bold text-rose-600">{m.pct}%</span>
+                </li>
+              ))}
+            </ul>
+            <button
+              onClick={() => setCoverageAlertDismissed(true)}
+              className="w-full px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Sidebar ─────────────────────────────────────────────────────── */}
       <aside className="w-60 bg-white border-r border-gray-200 flex flex-col sticky top-0 h-screen flex-shrink-0">
@@ -873,6 +997,7 @@ export default function Dashboard() {
                       <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Connects</th>
                       <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Client</th>
                       <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Skills</th>
+                      <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">By</th>
                       <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Viewed</th>
                     </tr>
                   </thead>
@@ -937,6 +1062,7 @@ export default function Dashboard() {
                             )}
                           </div>
                         </td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{j.capturedBy?.name || "—"}</td>
                         <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">{fmtDateTime(j.viewedAt)}</td>
                       </tr>
                     ))}
@@ -1003,6 +1129,7 @@ export default function Dashboard() {
                             <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Job Title</th>
                             <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Status</th>
                             <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Profile</th>
+                            <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">By</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1025,6 +1152,7 @@ export default function Dashboard() {
                                 }
                               </td>
                               <td className="px-4 py-3 text-gray-500 text-xs">{p.profileUsed || "—"}</td>
+                              <td className="px-4 py-3 text-gray-500 text-xs">{p.capturedBy?.name || "—"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1039,6 +1167,7 @@ export default function Dashboard() {
                             <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Rate</th>
                             <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Client</th>
                             <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Profile</th>
+                            <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">By</th>
                             <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Submitted</th>
                           </tr>
                         </thead>
@@ -1133,6 +1262,7 @@ export default function Dashboard() {
                                 </div>
                               </td>
                               <td className="px-4 py-3 text-gray-400 text-xs">{p.profileUsed || "—"}</td>
+                              <td className="px-4 py-3 text-gray-500 text-xs">{p.capturedBy?.name || "—"}</td>
                               <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
                                 {p.submittedAt ? fmtDateTime(p.submittedAt) : fmtDateTime(p.createdAt)}
                               </td>
@@ -1325,7 +1455,10 @@ export default function Dashboard() {
                                   Last: <span className="font-medium">{a.lastMessageSender}</span> ({a.lastMessageTime}): {a.lastMessageText}
                                 </p>
                               )}
-                              <p className="text-xs text-gray-400 mt-1">{a.accountName} -- {fmtDateTime(a.createdAt)}</p>
+                              <p className="text-xs text-gray-400 mt-1">
+                                {a.accountName} — {fmtDateTime(a.createdAt)}
+                                {a.capturedBy && <span className="ml-1 font-medium text-gray-500">· {a.capturedBy.name}</span>}
+                              </p>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
                               {/* {a.url && (
@@ -1426,6 +1559,17 @@ export default function Dashboard() {
 
           {/* ── Team Stats Tab ───────────────────────────────────────────────── */}
           {activeTab === "team-stats" && <TeamStatsView />}
+
+          {/* ── Coverage Pages Tab ───────────────────────────────────────────── */}
+          {activeTab === "coverage-pages" && <CoveragePagesView />}
+
+          {/* ── Profile Activity Tab ─────────────────────────────────────────── */}
+          {activeTab === "profile-activity" && (
+            <ProfileActivityView
+              accountId={(selected ?? accounts[0])?.id ?? ""}
+              accountName={(selected ?? accounts[0])?.name ?? ""}
+            />
+          )}
 
           {/* ── Audit Tab ────────────────────────────────────────────────────── */}
           {activeTab === "audit" && <AuditView />}

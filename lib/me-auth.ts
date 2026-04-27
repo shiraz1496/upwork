@@ -9,10 +9,14 @@ export async function resolveMeSession(req: Request): Promise<{ member: TeamMemb
   const raw = jar.get(ME_COOKIE.name)?.value;
   const parsed = await verifyMeCookie(raw);
   if (parsed) {
-    const member = await prisma.teamMember.findUnique({ where: { id: parsed.memberId } });
-    if (!member) throw new AuthError("member_not_found");
-    if (member.status !== "active") throw new AuthError("member_inactive");
-    return { member };
+    const token = await prisma.extensionToken.findUnique({
+      where: { id: parsed.tokenId },
+      include: { member: true },
+    });
+    if (!token) throw new AuthError("token_not_found");
+    if (token.revokedAt) throw new AuthError("revoked");
+    if (token.member.status !== "active") throw new AuthError("member_inactive");
+    return { member: token.member };
   }
 
   const { member } = await resolveExtensionToken(req);

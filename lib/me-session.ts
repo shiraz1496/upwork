@@ -28,28 +28,28 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export async function buildMeCookieValue(memberId: string): Promise<string> {
+export async function buildMeCookieValue(memberId: string, tokenId: string): Promise<string> {
   const issuedAt = Date.now().toString();
-  const sig = await hmacHex(`${memberId}.${issuedAt}`);
-  return `${memberId}.${issuedAt}.${sig}`;
+  const sig = await hmacHex(`${memberId}.${tokenId}.${issuedAt}`);
+  return `${memberId}.${tokenId}.${issuedAt}.${sig}`;
 }
 
 export async function verifyMeCookie(
   raw: string | undefined,
-): Promise<{ memberId: string } | null> {
+): Promise<{ memberId: string; tokenId: string } | null> {
   if (!raw) return null;
   const parts = raw.split(".");
-  if (parts.length !== 3) return null;
-  const [memberId, issuedAt, sig] = parts;
-  if (!memberId || !issuedAt || !sig) return null;
+  if (parts.length !== 4) return null;
+  const [memberId, tokenId, issuedAt, sig] = parts;
+  if (!memberId || !tokenId || !issuedAt || !sig) return null;
 
-  const expected = await hmacHex(`${memberId}.${issuedAt}`);
+  const expected = await hmacHex(`${memberId}.${tokenId}.${issuedAt}`);
   if (!constantTimeEqual(sig, expected)) return null;
 
   const age = (Date.now() - Number(issuedAt)) / 1000;
   if (!(age >= 0 && age <= MAX_AGE_SEC)) return null;
 
-  return { memberId };
+  return { memberId, tokenId };
 }
 
 export const ME_COOKIE = { name: COOKIE_NAME, maxAge: MAX_AGE_SEC };

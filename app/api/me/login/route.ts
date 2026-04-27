@@ -11,9 +11,9 @@ export async function POST(req: NextRequest) {
     const fakeReq = new Request("http://local/verify", {
       headers: { authorization: `Bearer ${token}` },
     });
-    const { member } = await resolveExtensionToken(fakeReq);
+    const { member, tokenId } = await resolveExtensionToken(fakeReq);
 
-    const cookieValue = await buildMeCookieValue(member.id);
+    const cookieValue = await buildMeCookieValue(member.id, tokenId);
     const res = NextResponse.json({
       ok: true,
       member: { id: member.id, name: member.name, email: member.email, role: member.role },

@@ -1150,15 +1150,15 @@ function watchApplyPage() {
   document.addEventListener("click", (ev) => {
     const btn = ev.target?.closest?.("button, [role='button']");
     if (!btn) return;
-    const label = (btn.textContent || "").trim();
+    const label = (btn.textContent || "").replace(/\s+/g, " ").trim();
     // Submit-proposal button variants on the apply page:
     //   "Send for N Connects"        (when Connects are charged)
     //   "Submit a Proposal" / "Submit Proposal"  (older / free submit)
     //   "Send Proposal"              (fallback)
     const submitPatterns = [
-      /^send\s+for\s+\d+\s+connects?$/i,
-      /^submit(\s+a)?\s+proposal$/i,
-      /^send\s+proposal$/i,
+      /send\s+for\s+\d+\s+connects?/i,
+      /submit(\s+a)?\s+proposal/i,
+      /send\s+proposal/i,
     ];
     if (!submitPatterns.some((re) => re.test(label))) return;
 
@@ -2160,9 +2160,19 @@ function runWithDelay(delayMs = 3000) {
   }, delayMs);
 }
 
+function maybeWatchApplyPage(url) {
+  if (url.match(/\/proposals\/job\/~[^/]+\/apply/)) {
+    watchApplyPage();
+  }
+}
+
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", () => runWithDelay());
+  document.addEventListener("DOMContentLoaded", () => {
+    maybeWatchApplyPage(window.location.href);
+    runWithDelay();
+  });
 } else {
+  maybeWatchApplyPage(window.location.href);
   runWithDelay();
 }
 
@@ -2172,6 +2182,7 @@ const navObserver = new MutationObserver(() => {
   if (window.location.href !== lastUrl) {
     console.log("[UT] SPA navigation:", window.location.href);
     lastUrl = window.location.href;
+    maybeWatchApplyPage(window.location.href);
     runWithDelay(2000);
   }
 });
@@ -2183,9 +2194,64 @@ window.addEventListener("popstate", () => {
   setTimeout(() => {
     if (window.location.href !== lastUrl) {
       lastUrl = window.location.href;
+      maybeWatchApplyPage(window.location.href);
       runWithDelay(1500);
     }
   }, 1000);
 });
 
 console.log("[UT] Content script ready — active scraping enabled");
+
+// ── Coverage modal ──
+function showCoverageModal({ pct, unvisited }) {
+  document.getElementById("ut-coverage-modal")?.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "ut-coverage-modal";
+  overlay.style.cssText = `
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 2147483647; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  `;
+
+  const pages = unvisited.map((p) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#fef3f2;border:1px solid #fecaca;border-radius:10px;">
+      <span style="font-size:14px;color:#111827;font-weight:500;">${p.name}</span>
+      <a href="${p.url}" target="_blank" rel="noopener noreferrer"
+         style="font-size:12px;font-weight:600;color:#fff;background:#14b8a6;padding:5px 12px;border-radius:6px;text-decoration:none;">
+        Open
+      </a>
+    </div>
+  `).join("");
+
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;box-shadow:0 25px 50px rgba(0,0,0,0.25);max-width:420px;width:90%;padding:24px;">
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;">
+        <div style="width:40px;height:40px;border-radius:50%;background:#fef2f2;border:1px solid #fecaca;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </div>
+        <div>
+          <div style="font-size:16px;font-weight:700;color:#111827;">Page coverage is ${pct}%</div>
+          <div style="font-size:13px;color:#6b7280;margin-top:2px;">Open the pages below to keep your stats accurate.</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;">${pages || '<p style="font-size:13px;color:#6b7280;text-align:center;">All required pages visited.</p>'}</div>
+      <button id="ut-coverage-close" style="width:100%;padding:10px;background:#111827;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;">
+        Close
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  document.getElementById("ut-coverage-close").addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === "SHOW_COVERAGE_MODAL") {
+    showCoverageModal(message.payload);
+  }
+});

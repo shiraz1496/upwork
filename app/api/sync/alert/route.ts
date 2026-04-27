@@ -95,6 +95,18 @@ export const POST = withAttribution(async ({ req, member }) => {
           });
         }
       }
+
+      if (type === "offer") {
+        const entityId = roomId || url || title;
+        await upsertCoverageReference({
+          memberId: member.id,
+          accountId: account.id,
+          entityType: "offer",
+          entityId,
+          openUrl: url,
+          reasonTags: ["offer"],
+        });
+      }
     }
 
     const anyNeedAttention = alerts.some((a: Record<string, unknown>) => a.needsAttention);

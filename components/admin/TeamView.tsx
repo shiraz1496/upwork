@@ -38,6 +38,9 @@ export function TeamView() {
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
 
+  const [revokeTarget, setRevokeTarget] = useState<Token | null>(null);
+  const [revoking, setRevoking] = useState(false);
+
   const loadMembers = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/team", { cache: "no-store" });
@@ -114,11 +117,19 @@ export function TeamView() {
     }
   }
 
-  async function revokeToken(tokenId: string) {
-    if (!confirm("Revoke this token? The device using it will stop syncing.")) return;
-    const res = await fetch(`/api/admin/team/tokens/${tokenId}`, { method: "DELETE" });
-    if (!res.ok) return alert(`Failed: HTTP ${res.status}`);
-    loadMembers();
+  async function confirmRevoke() {
+    if (!revokeTarget) return;
+    setRevoking(true);
+    try {
+      const res = await fetch(`/api/admin/team/tokens/${revokeTarget.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setRevokeTarget(null);
+      await loadMembers();
+    } catch (e) {
+      alert(`Failed: ${e instanceof Error ? e.message : "unknown"}`);
+    } finally {
+      setRevoking(false);
+    }
   }
 
   return (
@@ -177,7 +188,7 @@ export function TeamView() {
                   onToggleExpand={() => setExpandedId(expandedId === m.id ? null : m.id)}
                   onToggleStatus={() => toggleStatus(m)}
                   onIssueToken={() => setIssuingFor(m)}
-                  onRevokeToken={revokeToken}
+                  onRevokeToken={setRevokeTarget}
                 />
               ))}
             </tbody>
@@ -287,6 +298,41 @@ export function TeamView() {
           </form>
         )}
       </Modal>
+      <Modal
+        open={revokeTarget !== null}
+        onClose={() => { if (!revoking) setRevokeTarget(null); }}
+        title="Revoke token"
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg bg-rose-50 border border-rose-100 p-3 text-sm text-rose-800">
+            <p className="font-medium mb-1">
+              {revokeTarget?.label ? `"${revokeTarget.label}"` : "This token"} will be permanently revoked.
+            </p>
+            <p className="text-rose-700">
+              Any device or dashboard session using it will be signed out immediately. This cannot be undone.
+            </p>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setRevokeTarget(null)}
+              disabled={revoking}
+              className="px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50 shadow-sm transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmRevoke}
+              disabled={revoking}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+            >
+              {revoking && <Spinner />}
+              {revoking ? "Revoking…" : "Revoke token"}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -304,7 +350,7 @@ function MemberRow({
   onToggleExpand: () => void;
   onToggleStatus: () => void;
   onIssueToken: () => void;
-  onRevokeToken: (tokenId: string) => void;
+  onRevokeToken: (token: Token) => void;
 }) {
   return (
     <>
@@ -369,7 +415,7 @@ function MemberRow({
                       </div>
                     </div>
                     <button
-                      onClick={() => onRevokeToken(t.id)}
+                      onClick={() => onRevokeToken(t)}
                       className="text-xs text-rose-600 hover:text-rose-700 font-medium"
                     >
                       Revoke

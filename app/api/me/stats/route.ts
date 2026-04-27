@@ -7,17 +7,28 @@ function windowStart(daysAgo: number): Date {
 }
 
 async function computeStats(memberId: string, fromDate: Date, toDate: Date) {
-  const where = {
+  // Use submittedAt for the time window — that's when the proposal was actually sent,
+  // not when the extension happened to sync it. Fall back to capturedAt when submittedAt
+  // is null so nothing is silently excluded.
+  const proposalWhere = {
+    capturedByUserId: memberId,
+    OR: [
+      { submittedAt: { gte: fromDate, lt: toDate } },
+      { submittedAt: null, capturedAt: { gte: fromDate, lt: toDate } },
+    ],
+  };
+
+  const alertWhere = {
     capturedByUserId: memberId,
     capturedAt: { gte: fromDate, lt: toDate },
   };
 
   const [sent, viewed, interviewed, hired, messagesCaptured, messagesReplied] = await Promise.all([
-    prisma.proposal.count({ where }),
-    prisma.proposal.count({ where: { ...where, viewedByClient: true } }),
+    prisma.proposal.count({ where: proposalWhere }),
+    prisma.proposal.count({ where: { ...proposalWhere, viewedByClient: true } }),
     prisma.proposal.count({
       where: {
-        ...where,
+        ...proposalWhere,
         OR: [
           { section: { contains: "nterview", mode: "insensitive" } },
           { section: { contains: "offer", mode: "insensitive" } },
@@ -26,15 +37,15 @@ async function computeStats(memberId: string, fromDate: Date, toDate: Date) {
     }),
     prisma.proposal.count({
       where: {
-        ...where,
+        ...proposalWhere,
         OR: [
           { status: { contains: "hired", mode: "insensitive" } },
           { section: { contains: "hired", mode: "insensitive" } },
         ],
       },
     }),
-    prisma.alert.count({ where: { ...where, type: "message" } }),
-    prisma.alert.count({ where: { ...where, type: "message", freelancerReplied: true } }),
+    prisma.alert.count({ where: { ...alertWhere, type: "message" } }),
+    prisma.alert.count({ where: { ...alertWhere, type: "message", freelancerReplied: true } }),
   ]);
 
   const rate = (n: number) => (sent === 0 ? 0 : Math.round((n / sent) * 1000) / 10);

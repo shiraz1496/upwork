@@ -40,6 +40,7 @@ model TeamMember {
   capturedProposals Proposal[]
   capturedJobs      Job[]
   capturedAlerts    Alert[]
+  pageVisits        PageVisit[]
 }
 
 model ExtensionToken {
@@ -280,4 +281,25 @@ model Proposal {
 
   @@index([accountId])
   @@index([capturedByUserId])
+}
+
+model RequiredPage {
+  id        String      @id @default(cuid())
+  name      String
+  url       String
+  createdAt DateTime    @default(now())
+  visits    PageVisit[]
+}
+
+model PageVisit {
+  id        String       @id @default(cuid())
+  pageId    String
+  page      RequiredPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    TeamMember   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  visitedAt DateTime     @default(now())
+
+  @@unique([pageId, memberId])
+  @@index([memberId])
+  @@index([pageId])
 }

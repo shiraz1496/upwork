@@ -6,39 +6,53 @@ export async function GET(req: NextRequest) {
   try {
     const { member } = await resolveMeSession(req);
 
-    const [items, totalWithRef, capturedCount] = await Promise.all([
-      prisma.coverageItem.findMany({
-        where: { memberId: member.id, capturedAt: null },
-        orderBy: [{ priority: "desc" }, { referencedAt: "desc" }],
-        take: 100,
+    const since = new Date(Date.now() - 1 * 60 * 60 * 1000);
+
+    const [allPages, recentVisits, items] = await Promise.all([
+      prisma.requiredPage.findMany({
+        select: { id: true, name: true, url: true },
+        orderBy: { createdAt: "asc" },
       }),
-      prisma.coverageItem.count({ where: { memberId: member.id } }),
-      prisma.coverageItem.count({
-        where: { memberId: member.id, capturedAt: { not: null } },
+      prisma.pageVisit.findMany({
+        where: { memberId: member.id, visitedAt: { gte: since } },
+        select: { pageId: true },
+      }),
+      prisma.coverageItem.findMany({
+        where: { memberId: member.id, referencedAt: { gte: since } },
+        orderBy: { referencedAt: "desc" },
       }),
     ]);
 
-    const coveragePct =
-      totalWithRef === 0 ? 100 : Math.round((capturedCount / totalWithRef) * 100);
+    const visitedSet = new Set(recentVisits.map((v) => v.pageId));
+    const unvisitedPages = allPages.filter((p) => !visitedSet.has(p.id));
+
+    const totalItems = items.length;
+    const capturedItems = items.filter((i) => i.capturedAt).length;
+    const uncapturedItems = items.filter((i) => !i.capturedAt);
+
+    // Weighted average: Checklist (50%) + Dynamic Items (50%)
+    const checklistScore = allPages.length === 0 ? 100 : (visitedSet.size / allPages.length) * 100;
+    const itemsScore = totalItems === 0 ? 100 : (capturedItems / totalItems) * 100;
+    const coveragePct = Math.round((checklistScore + itemsScore) / 2);
 
     return Response.json({
       member: { id: member.id, name: member.name },
       coveragePct,
       totals: {
-        referenced: totalWithRef,
-        captured: capturedCount,
-        uncovered: items.length,
+        pages: { total: allPages.length, visited: visitedSet.size },
+        items: { total: totalItems, captured: capturedItems },
       },
-      items: items.map((i) => ({
-        id: i.id,
-        entityType: i.entityType,
-        entityId: i.entityId,
-        openUrl: i.openUrl,
-        reasonTags: i.reasonTags,
-        referencedAt: i.referencedAt,
-        priority: i.priority,
-      })),
+      unvisited: [
+        ...unvisitedPages.map((p) => ({ ...p, type: "PAGE" })),
+        ...uncapturedItems.map((i) => ({
+          id: i.id,
+          name: i.entityId,
+          url: i.openUrl,
+          type: i.entityType,
+        })),
+      ],
     });
+
   } catch (err) {
     return authErrorResponse(err);
   }

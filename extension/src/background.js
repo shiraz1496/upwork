@@ -1,4 +1,4 @@
-const DEFAULT_BACKEND_URL = "http://localhost:3000";
+const DEFAULT_BACKEND_URL = "https://upwork-tracking-tool.vercel.app";
 
 console.log("[UT BG] Service worker started v5");
 
@@ -31,6 +31,15 @@ chrome.webNavigation.onCommitted.addListener(
   { url: [{ hostContains: "upwork.com" }] }
 );
 
+chrome.webNavigation.onCompleted.addListener(
+  (details) => {
+    if (details.frameId !== 0) return;
+    checkUrlAgainstRequiredPages(details.url).catch(() => {});
+    checkCoverageAndNotify(details.tabId).catch(() => {});
+  },
+  { url: [{ hostContains: "upwork.com" }] }
+);
+
 // ── Get the ONE canonical freelancerId — always from storage ──
 async function getFreelancerId() {
   const data = await chrome.storage.local.get(["canonicalUserId", "lastAccountInfo"]);
@@ -45,6 +54,13 @@ async function getAccountName() {
 async function getBackendUrl() {
   const data = await chrome.storage.local.get(["backendUrl"]);
   return data.backendUrl || DEFAULT_BACKEND_URL;
+}
+
+function backendHeaders(token, backendUrl, extra = {}) {
+  const headers = { ...extra };
+  if (backendUrl.includes("ngrok")) headers["ngrok-skip-browser-warning"] = "true";
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return headers;
 }
 
 async function getAuthToken() {
@@ -66,10 +82,7 @@ async function syncToBackend(endpoint, payload) {
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers: backendHeaders(token, backendUrl, { "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
     });
 
@@ -101,10 +114,12 @@ async function syncToBackend(endpoint, payload) {
 // ── Alarms for periodic alert checking ──
 chrome.alarms.create("check-alerts", { periodInMinutes: 2 });
 chrome.alarms.create("reply-reminder", { periodInMinutes: 3 });
-
+chrome.alarms.create("refresh-required-pages", { periodInMinutes: 30 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "check-alerts") checkForAlerts();
   if (alarm.name === "reply-reminder") checkUnrepliedMessages();
+  if (alarm.name === "refresh-required-pages") fetchRequiredPages();
+
 });
 
 async function checkForAlerts() {
@@ -135,6 +150,85 @@ async function checkUnrepliedMessages() {
   }
 
   await chrome.storage.local.set({ unrepliedMessages: unreplied });
+}
+
+async function fetchRequiredPages() {
+  const token = await getAuthToken();
+  if (!token) return;
+  const backendUrl = await getBackendUrl();
+  try {
+    const res = await fetch(`${backendUrl}/api/coverage/pages`, {
+      headers: backendHeaders(token, backendUrl),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const pages = data.pages || [];
+    await chrome.storage.local.set({ requiredPages: pages });
+    console.log("[UT BG] Loaded", pages.length, "required pages");
+  } catch (e) {
+    console.warn("[UT BG] fetchRequiredPages error", e);
+  }
+}
+
+async function postPageVisit(pageId) {
+  const token = await getAuthToken();
+  if (!token) return;
+  const backendUrl = await getBackendUrl();
+  try {
+    await fetch(`${backendUrl}/api/coverage/visit`, {
+      method: "POST",
+      headers: backendHeaders(token, backendUrl, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ pageId }),
+    });
+    console.log("[UT BG] Recorded visit for page", pageId);
+  } catch (e) {
+    console.warn("[UT BG] postPageVisit error", e);
+  }
+}
+
+async function checkUrlAgainstRequiredPages(url) {
+  const { requiredPages } = await chrome.storage.local.get(["requiredPages"]);
+  if (!requiredPages || !requiredPages.length) return;
+  for (const page of requiredPages) {
+    try {
+      const normalize = (u) => u.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
+      if (normalize(url).includes(normalize(page.url))) {
+        await postPageVisit(page.id);
+        break;
+      }
+    } catch {}
+  }
+}
+
+async function checkCoverageAndNotify(tabId) {
+  const token = await getAuthToken();
+  if (!token) return;
+  const backendUrl = await getBackendUrl();
+  try {
+    const res = await fetch(`${backendUrl}/api/me/coverage`, {
+      headers: backendHeaders(token, backendUrl),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const pct = data.coveragePct ?? 100;
+    if (pct >= 80) return;
+
+    // Send modal to the tab that triggered the check, or find any active Upwork tab
+    let targetTab = tabId;
+    if (!targetTab) {
+      const tabs = await chrome.tabs.query({ url: "https://www.upwork.com/*" });
+      targetTab = tabs[0]?.id;
+    }
+    if (!targetTab) return;
+
+    chrome.tabs.sendMessage(targetTab, {
+      type: "SHOW_COVERAGE_MODAL",
+      payload: { pct, unvisited: data.unvisited || [] },
+    }).catch(() => {});
+    console.log("[UT BG] Coverage modal sent to tab", targetTab, pct + "%");
+  } catch (e) {
+    console.warn("[UT BG] checkCoverageAndNotify error", e);
+  }
 }
 
 // ── Messages ──
@@ -544,7 +638,7 @@ async function handleSetToken({ raw }) {
   try {
     const res = await fetch(`${backendUrl}/api/auth/verify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${raw}` },
+      headers: backendHeaders(raw, backendUrl, { "Content-Type": "application/json" }),
       body: "{}",
     });
     if (res.status === 401) {
@@ -554,6 +648,7 @@ async function handleSetToken({ raw }) {
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const { member } = await res.json();
     await chrome.storage.local.set({ authToken: raw, authMember: member, authError: null });
+    fetchRequiredPages();
     return { ok: true, member };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -567,9 +662,12 @@ async function handleClearToken() {
 
 async function handleForceSync() {
   const { lastAccountInfo: info } = await chrome.storage.local.get(["lastAccountInfo"]);
+  fetchRequiredPages();
   if (!info?.userId) return { ok: false, error: "No account info yet — open any Upwork page" };
   return syncToBackend("/api/sync/account", {
     freelancerId: info.userId,
     ...(info.name ? { name: info.name } : {}),
   });
 }
+
+fetchRequiredPages();
