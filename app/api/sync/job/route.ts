@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { withAttribution, firstCaptureFields, resolveAccount } from "@/lib/attribution";
 
-export async function POST(req: NextRequest) {
+export const POST = withAttribution(async ({ req, member }) => {
   try {
     const body = await req.json();
     const {
@@ -20,22 +21,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "freelancerId, url, and title required" }, { status: 400 });
     }
 
-    // Clean the URL (remove query params)
     const cleanUrl = url.split("?")[0];
-
-    let account = await prisma.account.findUnique({ where: { freelancerId: String(freelancerId) } });
-    if (!account) {
-      try {
-        account = await prisma.account.create({
-          data: { freelancerId: String(freelancerId), name: String(freelancerId) },
-        });
-      } catch {
-        account = await prisma.account.findUnique({ where: { freelancerId: String(freelancerId) } });
-      }
-    }
-    if (!account) {
-      return NextResponse.json({ error: "Failed to resolve account" }, { status: 500 });
-    }
+    const account = await resolveAccount(freelancerId);
+    if (!account) return NextResponse.json({ error: "Failed to resolve account" }, { status: 500 });
 
     const data = {
       title,
@@ -72,13 +60,12 @@ export async function POST(req: NextRequest) {
     const job = await prisma.job.upsert({
       where: { accountId_url: { accountId: account.id, url: cleanUrl } },
       update: data,
-      create: { accountId: account.id, url: cleanUrl, ...data },
+      create: { accountId: account.id, url: cleanUrl, ...data, ...firstCaptureFields(member) },
     });
 
     return NextResponse.json({ ok: true, jobId: job.id });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[sync/job]", message);
+  } catch (err) {
+    console.error("[sync/job]", err);
     return NextResponse.json({ error: "Failed to sync job" }, { status: 500 });
   }
-}
+});
