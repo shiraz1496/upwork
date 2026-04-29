@@ -731,10 +731,16 @@ export default function Dashboard() {
       : sortedProposalSections.filter(([section]) => section === proposalFilter);
     if (viewedFilter !== "all") {
       sections = sections
-        .map(([section, props]) => [
-          section,
-          props.filter((p) => viewedFilter === "viewed" ? p.viewedByClient : !p.viewedByClient),
-        ] as [string, ProposalData[]])
+        .map(([section, props]) => {
+          const impliedViewed = /active|offers?|interviewing/i.test(section);
+          return [
+            section,
+            props.filter((p) => {
+              const isViewed = p.viewedByClient || impliedViewed;
+              return viewedFilter === "viewed" ? isViewed : !isViewed;
+            }),
+          ] as [string, ProposalData[]];
+        })
         .filter(([, props]) => props.length > 0);
     }
     if (proposalSearch.trim()) {
@@ -883,7 +889,9 @@ export default function Dashboard() {
     "Overview";
 
   function openInChatGPT() {
-    const allProposals = filteredProposalSections.flatMap(([, props]) => props);
+    const allProposals = filteredProposalSections.flatMap(([section, props]) =>
+      props.map((p) => ({ ...p, viewedByClient: p.viewedByClient || /active|offers?|interviewing/i.test(section) }))
+    );
     const viewed = allProposals.filter((p) => p.viewedByClient).length;
     const notViewed = allProposals.length - viewed;
 
@@ -1126,7 +1134,10 @@ export default function Dashboard() {
           {/* ── Overview Tab ─────────────────────────────────────────────────── */}
           {activeTab === "overview" && (() => {
             const totalProposals = sortedProposalSections.reduce((s, [, p]) => s + p.length, 0);
-            const viewedProposals = allProposals.filter((p) => p.viewedByClient).length;
+            const viewedProposals = sortedProposalSections.reduce((sum, [section, props]) => {
+              const implied = /active|offers?|interviewing/i.test(section);
+              return sum + props.filter((p) => p.viewedByClient || implied).length;
+            }, 0);
             const viewRate = totalProposals > 0 ? Math.round((viewedProposals / totalProposals) * 100) : 0;
             const unreadCount = unreadAlerts.length;
             return (
@@ -1329,6 +1340,7 @@ export default function Dashboard() {
                   {filteredProposalSections.map(([section, props]) => {
                     const isArchived = section.toLowerCase().includes("archived");
                     const isInterview = section.toLowerCase().includes("interview");
+                    const sectionImpliesViewed = /active|offers?|interviewing/i.test(section);
                     const unit = isInterview ? "interview" : "proposal";
                     return (
                       <div key={section}>
@@ -1438,7 +1450,7 @@ export default function Dashboard() {
                                       )}
                                     </td>
                                     <td className="px-4 py-3 text-center">
-                                      {p.viewedByClient
+                                      {(p.viewedByClient || sectionImpliesViewed)
                                         ? <Badge text="Viewed" variant="green" />
                                         : <span className="text-gray-300 text-xs">—</span>
                                       }
