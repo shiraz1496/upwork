@@ -5,6 +5,7 @@ import { logAudit } from "@/lib/audit";
 import { upsertCoverageReference } from "@/lib/coverage";
 
 const ACTIVE_SECTIONS = new Set(["Active", "Interviewing", "Offers"]);
+const VIEWED_SECTIONS = new Set(["Active proposals", "Interviewing", "Offers", "Active"]);
 
 function tryParseDate(str: string): Date | null {
   if (!str) return null;
@@ -38,13 +39,14 @@ export const POST = withAttribution(async ({ req, member }) => {
       const jobUrl = p.url || null;
       const parsedDate = tryParseDate(p.submittedAt);
 
+      const impliedViewed = p.section ? VIEWED_SECTIONS.has(p.section) : false;
       const updateData = {
         jobTitle: p.title,
         status: p.status ?? undefined,
         section: p.section ?? undefined,
         boosted: p.boosted ?? false,
         boostStatus: p.boostStatus ?? undefined,
-        viewedByClient: p.viewedByClient ?? undefined,
+        viewedByClient: impliedViewed || (p.viewedByClient ?? undefined),
         submittedAt: parsedDate ?? undefined,
         profileUsed: p.profileUsed ?? undefined,
         ...(jobUrl ? { jobUrl } : {}),
