@@ -5,8 +5,13 @@ export async function GET() {
   try {
     await requireAdmin();
 
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const totalPages = await prisma.requiredPage.count();
+    const now = Date.now();
+    const pages = await prisma.requiredPage.findMany({ select: { id: true, cooldownHours: true } });
+    const totalPages = pages.length;
+    // Widest window needed to cover any page's cooldown
+    const maxCooldownMs = pages.reduce((m, p) => Math.max(m, p.cooldownHours * 60 * 60 * 1000), 60 * 60 * 1000);
+    const maxCooldownAgo = new Date(now - maxCooldownMs);
+    const pageCooldownMap = new Map(pages.map((p) => [p.id, p.cooldownHours * 60 * 60 * 1000]));
 
     // Get all active bidders (exclude admins)
     const bidders = await prisma.teamMember.findMany({
@@ -70,26 +75,35 @@ export async function GET() {
           where: {
             accountId: accountId,
             memberId: { in: bidderList },
-            visitedAt: { gte: oneHourAgo },
+            visitedAt: { gte: maxCooldownAgo },
           },
-          select: { memberId: true },
+          select: { memberId: true, pageId: true, visitedAt: true },
         });
 
+        // For each bidder, count pages covered within that page's own cooldown window
         const visitMap = new Map<string, number>();
-        for (const v of recentVisits) {
-          visitMap.set(v.memberId, (visitMap.get(v.memberId) ?? 0) + 1);
+        for (const bId of bidderList) {
+          const bidderVisits = recentVisits.filter((v) => v.memberId === bId);
+          let covered = 0;
+          for (const v of bidderVisits) {
+            const cooldownMs = pageCooldownMap.get(v.pageId);
+            if (cooldownMs !== undefined && now - v.visitedAt.getTime() <= cooldownMs) {
+              covered++;
+            }
+          }
+          visitMap.set(bId, covered);
         }
 
         const bidderResults = bidderList.map((bId) => {
-          const visitedPages = visitMap.get(bId) ?? 0;
-          const pct = totalPages === 0 ? 100 : Math.round((visitedPages / totalPages) * 100);
-          return { id: bId, name: bidderById.get(bId)?.name ?? "Unknown", pct };
+          const visited = visitMap.get(bId) ?? 0;
+          const pct = totalPages === 0 ? 100 : Math.round((visited / totalPages) * 100);
+          return { id: bId, name: bidderById.get(bId)?.name ?? "Unknown", pct, visited };
         });
 
         // Account is covered if ANY bidder has >= 60% in the last hour
-        const maxPct = bidderResults.length === 0 ? 0 : Math.max(...bidderResults.map((b) => b.pct));
+        const best = bidderResults.reduce((a, b) => (b.visited > a.visited ? b : a), { visited: 0, pct: 0 } as { visited: number; pct: number });
 
-        return { id: accountId, name, pct: maxPct, bidders: bidderResults };
+        return { id: accountId, name, pct: best.pct, visited: best.visited, bidders: bidderResults };
       }),
     );
 

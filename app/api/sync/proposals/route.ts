@@ -10,6 +10,11 @@ const VIEWED_SECTIONS = new Set(["Active proposals", "Interviewing", "Offers", "
 function tryParseDate(str: string): Date | null {
   if (!str) return null;
   const cleaned = str.replace(/\s+at\s+/i, " ").trim();
+  // If no time component, force UTC midnight so stored value is timezone-independent
+  if (!/\d{1,2}:\d{2}/.test(cleaned)) {
+    const utc = new Date(cleaned + " UTC");
+    if (!isNaN(utc.getTime())) return utc;
+  }
   const d = new Date(cleaned);
   return isNaN(d.getTime()) ? null : d;
 }

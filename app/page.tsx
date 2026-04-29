@@ -42,8 +42,11 @@ function fmt(n: number): string {
 
 function fmtDateTime(d: string): string {
   const dt = new Date(d);
-  if (dt.getHours() === 0 && dt.getMinutes() === 0 && dt.getSeconds() === 0) {
-    return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const isDateOnly =
+    (dt.getUTCHours() === 0 && dt.getUTCMinutes() === 0 && dt.getUTCSeconds() === 0) ||
+    (dt.getHours() === 0 && dt.getMinutes() === 0 && dt.getSeconds() === 0);
+  if (isDateOnly) {
+    return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
   }
   return dt.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
@@ -150,7 +153,7 @@ function JobDrawer({ job, onClose }: { job: JobData; onClose: () => void }) {
     <>
       {/* Overlay */}
       <div
-        className="fixed inset-0 bg-black/30 z-40 transition-opacity"
+        className="fixed inset-0 bg-black/20 backdrop-blur-[1px] z-40"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -312,7 +315,7 @@ function ProposalDrawer({ proposal, onClose }: { proposal: ProposalData; onClose
   return (
     <>
       <div
-        className="fixed inset-0 bg-black/30 z-40 transition-opacity"
+        className="fixed inset-0 bg-black/20 backdrop-blur-[1px] z-40"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -572,7 +575,7 @@ export default function Dashboard() {
   const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string; role: string }[]>([]);
   const [memberFilter, setMemberFilter] = useState<string>("all");
-  const [coverageAlert, setCoverageAlert] = useState<{ accounts: { id: string; name: string; pct: number; bidders: { id: string; name: string; pct: number }[] }[] } | null>(null);
+  const [coverageAlert, setCoverageAlert] = useState<{ totalPages: number; accounts: { id: string; name: string; pct: number; visited: number; bidders: { id: string; name: string; pct: number; visited: number }[] }[] } | null>(null);
   const [gptCopied, setGptCopied] = useState(false);
   const [coverageAlertDismissed, setCoverageAlertDismissed] = useState(false);
   const [coverageAlertExpanded, setCoverageAlertExpanded] = useState(false);
@@ -613,7 +616,7 @@ export default function Dashboard() {
         const low = (data.accounts || []).filter(
           (a: { pct: number }) => a.pct < 60,
         );
-        if (low.length > 0) setCoverageAlert({ accounts: low });
+        if (low.length > 0) setCoverageAlert({ totalPages: data.totalPages ?? 0, accounts: low });
       })
       .catch(() => { });
   }, [refreshKey]);
@@ -954,34 +957,20 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 flex">
-      {/* Drawers */}
-      {selectedJob && <JobDrawer job={selectedJob} onClose={closeDrawer} />}
-      {selectedProposal && <ProposalDrawer proposal={selectedProposal} onClose={closeDrawer} />}
-
-      {/* Mobile sidebar overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
-      )}
-
-      {/* ChatGPT copy toast */}
-      {gptCopied && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 bg-gray-900 text-white text-sm px-4 py-3 rounded-xl shadow-lg">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-green-400 shrink-0"><polyline points="20 6 9 17 4 12" /></svg>
-          Data copied — paste it in ChatGPT with <kbd className="ml-1 px-1.5 py-0.5 bg-gray-700 rounded text-xs font-mono">⌘V</kbd>
-        </div>
-      )}
+    <div className="min-h-screen bg-gray-50 text-gray-900 flex overflow-x-hidden">
 
 
-      {/* ── Sidebar ─────────────────────────────────────────────────────── */}
-      <aside className={`fixed lg:sticky top-0 left-0 h-screen w-64 lg:w-60 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 z-50 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
+
+
+        {/* ── Sidebar ─────────────────────────────────────────────────────── */}
+        <aside className={`fixed lg:sticky top-0 left-0 h-screen w-64 lg:w-60 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 ${selectedJob || selectedProposal ? "z-20" : "z-50"} overflow-x-hidden`}>
         <div className="h-14 px-5 flex items-center border-b border-gray-200">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-teal-500 text-white flex items-center justify-center text-xs font-bold">UT</div>
             <span className="text-sm font-semibold text-gray-900 tracking-tight">Upwork Tracker</span>
           </div>
         </div>
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto scrollbar-hide">
           {TABS.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
@@ -1033,7 +1022,7 @@ export default function Dashboard() {
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
               <button
                 onClick={() => setCoverageAlertExpanded(v => !v)}
-                className="flex-1 flex items-center justify-between gap-2 text-left"
+                className="flex-1 flex items-center justify-between gap-2 text-left focus:outline-none"
               >
                 <span className="text-[11px] font-semibold text-amber-800">
                   {coverageAlert.accounts.length} account{coverageAlert.accounts.length !== 1 ? "s" : ""} low coverage
@@ -1055,7 +1044,9 @@ export default function Dashboard() {
                   <li key={a.id} className="px-3 py-2">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-[11px] text-amber-900 font-medium truncate">{a.name}</span>
-                      <span className={`text-[11px] font-bold ml-2 shrink-0 ${a.pct === 0 ? "text-rose-600" : a.pct < 40 ? "text-orange-500" : "text-amber-600"}`}>{a.pct}%</span>
+                      <span className={`text-[11px] font-bold ml-2 shrink-0 ${a.pct === 0 ? "text-rose-600" : a.pct < 40 ? "text-orange-500" : "text-amber-600"}`}>
+                        {a.visited}/{coverageAlert.totalPages}
+                      </span>
                     </div>
                     <div className="h-1 rounded-full bg-amber-100">
                       <div className={`h-1 rounded-full ${a.pct === 0 ? "bg-rose-400" : a.pct < 40 ? "bg-orange-400" : "bg-amber-400"}`} style={{ width: `${Math.max(a.pct, 2)}%` }} />
@@ -1098,8 +1089,8 @@ export default function Dashboard() {
         </div>
       </aside>
 
-      {/* ── Main ────────────────────────────────────────────────────────── */}
-      <main className="flex-1 min-w-0 flex flex-col">
+        {/* ── Main ────────────────────────────────────────────────────────── */}
+        <main className="flex-1 min-w-0 flex flex-col">
         {/* Top bar */}
         <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-gray-200 h-14 flex items-center justify-between px-4 lg:px-6">
           <div className="flex items-center gap-3">
@@ -1129,7 +1120,7 @@ export default function Dashboard() {
           </div>
         </header>
 
-        <div className="flex-1 px-6 pb-6 overflow-auto">
+        <div className="flex-1 px-6 pb-6 overflow-y-auto scrollbar-hide">
 
           {/* ── Overview Tab ─────────────────────────────────────────────────── */}
           {activeTab === "overview" && (() => {
@@ -1348,7 +1339,7 @@ export default function Dashboard() {
                           <Badge text={section} variant={sectionBadgeVariant(section)} />
                           <span className="text-xs text-gray-400">{props.length} {unit}{props.length !== 1 ? "s" : ""}</span>
                         </div>
-                        <div className="border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+                        <div className="border border-gray-200 rounded-xl overflow-x-auto scrollbar-hide shadow-sm">
                           {isArchived ? (
                             <table className="w-full text-sm">
                               <thead>
@@ -1756,7 +1747,7 @@ export default function Dashboard() {
                           <Badge text={section} variant={sectionBadgeVariant(section)} />
                           <span className="text-xs text-gray-400">{props.length} {unit}{props.length !== 1 ? "s" : ""}</span>
                         </div>
-                        <div className="border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+                        <div className="border border-gray-200 rounded-xl overflow-x-auto scrollbar-hide shadow-sm">
                           <table className="w-full text-sm">
                             <thead>
                               <tr className="border-b border-gray-200 bg-gray-50">
@@ -1908,6 +1899,23 @@ export default function Dashboard() {
           </div>
         </div>
       </main>
-    </div>
-  );
+
+    {/* ── Drawers ──────────────────────────────────────────────────────── */}
+    {selectedJob && <JobDrawer job={selectedJob} onClose={closeDrawer} />}
+    {selectedProposal && <ProposalDrawer proposal={selectedProposal} onClose={closeDrawer} />}
+
+    {/* ── Mobile Sidebar Overlay ────────────────────────────────────────── */}
+    {sidebarOpen && (
+      <div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
+    )}
+
+    {/* ── ChatGPT copy toast ────────────────────────────────────────────── */}
+    {gptCopied && (
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2.5 bg-gray-900 text-white text-sm px-4 py-3 rounded-xl shadow-lg">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-green-400 shrink-0"><polyline points="20 6 9 17 4 12" /></svg>
+        Data copied — paste it in ChatGPT with <kbd className="ml-1 px-1.5 py-0.5 bg-gray-700 rounded text-xs font-mono">⌘V</kbd>
+      </div>
+    )}
+  </div>
+);
 }

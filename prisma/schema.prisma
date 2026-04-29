@@ -291,12 +291,13 @@ model Proposal {
 }
 
 model RequiredPage {
-  id        String      @id @default(cuid())
-  name      String
-  url       String
-  createdAt DateTime    @default(now())
-  visits    PageVisit[]
-  visitLogs VisitLog[]
+  id            String      @id @default(cuid())
+  name          String
+  url           String
+  cooldownHours Int         @default(1)
+  createdAt     DateTime    @default(now())
+  visits        PageVisit[]
+  visitLogs     VisitLog[]
 }
 
 model PageVisit {
