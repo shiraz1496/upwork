@@ -20,6 +20,7 @@ export async function DELETE(
 const PatchBody = z.object({
   name: z.string().min(1).max(100).optional(),
   url: z.string().startsWith("https://").optional(),
+  cooldownHours: z.number().int().min(1).max(168).optional(),
 });
 
 export async function PATCH(

@@ -19,6 +19,7 @@ export async function GET() {
 const CreateBody = z.object({
   name: z.string().min(1).max(100),
   url: z.string().startsWith("https://"),
+  cooldownHours: z.number().int().min(1).max(168).default(1),
 });
 
 export async function POST(req: NextRequest) {

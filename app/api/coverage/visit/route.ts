@@ -29,14 +29,15 @@ export const POST = withAttribution(async ({ req, member }: { req: NextRequest; 
   }
 
   const now = new Date();
-  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+  const cooldownMs = page.cooldownHours * 60 * 60 * 1000;
+  const cooldownAgo = new Date(now.getTime() - cooldownMs);
 
-  // Check if this page is currently covered for this account (any bidder visited in the last hour)
+  // Check if this page is currently covered for this account (any bidder visited within cooldown window)
   const alreadyCovered = await prisma.pageVisit.findFirst({
     where: {
       pageId,
       accountId,
-      visitedAt: { gte: oneHourAgo },
+      visitedAt: { gte: cooldownAgo },
     },
     select: { id: true },
   });

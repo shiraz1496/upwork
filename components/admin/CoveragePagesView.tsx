@@ -6,6 +6,7 @@ type RequiredPage = {
   id: string;
   name: string;
   url: string;
+  cooldownHours: number;
   createdAt: string;
   _count: { visits: number };
 };
@@ -15,10 +16,14 @@ export function CoveragePagesView() {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
+  const [cooldownHours, setCooldownHours] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<RequiredPage | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [editingCooldown, setEditingCooldown] = useState<string | null>(null);
+  const [editCooldownValue, setEditCooldownValue] = useState(1);
+  const [savingCooldown, setSavingCooldown] = useState(false);
 
   const loadPages = useCallback(async () => {
     const res = await fetch("/api/admin/coverage-pages");
@@ -55,7 +60,7 @@ export function CoveragePagesView() {
       const res = await fetch("/api/admin/coverage-pages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), url: url.trim() }),
+        body: JSON.stringify({ name: name.trim(), url: url.trim(), cooldownHours }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -64,6 +69,7 @@ export function CoveragePagesView() {
       }
       setName("");
       setUrl("");
+      setCooldownHours(1);
       await loadPages();
     } catch {
       setFormError("Failed to add page.");
@@ -80,6 +86,29 @@ export function CoveragePagesView() {
       setConfirmDelete(null);
       await loadPages();
     }
+  }
+
+  async function handleSaveCooldown(id: string) {
+    setSavingCooldown(true);
+    try {
+      await fetch(`/api/admin/coverage-pages/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cooldownHours: editCooldownValue }),
+      });
+      setEditingCooldown(null);
+      await loadPages();
+    } finally {
+      setSavingCooldown(false);
+    }
+  }
+
+  function fmtCooldown(h: number | undefined) {
+    const hours = h ?? 1;
+    if (hours === 1) return "1 hr";
+    if (hours === 24) return "24 hrs (1 day)";
+    if (hours % 24 === 0) return `${hours / 24} days`;
+    return `${hours} hrs`;
   }
 
   return (
@@ -103,6 +132,17 @@ export function CoveragePagesView() {
               placeholder="URL (must start with https://)"
               className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500"
             />
+            <div className="flex items-center gap-1.5 shrink-0">
+              <input
+                type="number"
+                value={cooldownHours}
+                onChange={(e) => setCooldownHours(Math.max(1, Math.min(168, Number(e.target.value))))}
+                min={1}
+                max={168}
+                className="w-16 border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white text-gray-700 text-center focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+              <span className="text-xs text-gray-400 whitespace-nowrap">hr cooldown</span>
+            </div>
             <button
               type="submit"
               disabled={submitting}
@@ -148,6 +188,41 @@ export function CoveragePagesView() {
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <span className="text-xs text-gray-400">{page._count.visits} visit{page._count.visits !== 1 ? "s" : ""}</span>
+                  {editingCooldown === page.id ? (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        value={editCooldownValue}
+                        onChange={(e) => setEditCooldownValue(Math.max(1, Math.min(168, Number(e.target.value))))}
+                        min={1}
+                        max={168}
+                        className="w-14 border border-gray-200 rounded px-2 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-teal-500"
+                        autoFocus
+                      />
+                      <span className="text-xs text-gray-400">hrs</span>
+                      <button
+                        onClick={() => handleSaveCooldown(page.id)}
+                        disabled={savingCooldown}
+                        className="px-2 py-1 text-xs font-medium text-white bg-teal-500 hover:bg-teal-600 disabled:opacity-50 rounded transition-colors"
+                      >
+                        {savingCooldown ? "…" : "Save"}
+                      </button>
+                      <button
+                        onClick={() => setEditingCooldown(null)}
+                        className="px-2 py-1 text-xs font-medium text-gray-500 hover:text-gray-700"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setEditingCooldown(page.id); setEditCooldownValue(page.cooldownHours ?? 1); }}
+                      className="text-xs text-gray-400 hover:text-teal-600 border border-gray-200 hover:border-teal-300 rounded px-2 py-1 transition-colors"
+                      title="Edit cooldown window"
+                    >
+                      {fmtCooldown(page.cooldownHours)}
+                    </button>
+                  )}
                   <button
                     onClick={() => setConfirmDelete(page)}
                     className="px-3 py-1.5 text-xs font-medium text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-50 transition-colors"

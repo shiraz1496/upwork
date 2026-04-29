@@ -6,46 +6,53 @@ export async function GET(req: NextRequest) {
   try {
     const { member } = await resolveMeSession(req);
 
-    const since = new Date(Date.now() - 8 * 60 * 60 * 1000);
+    const now = Date.now();
     const url = new URL(req.url);
     const freelancerId = url.searchParams.get("freelancerId");
 
-    const [allPages, items] = await Promise.all([
-      prisma.requiredPage.findMany({
-        select: { id: true, name: true, url: true },
-        orderBy: { createdAt: "asc" },
-      }),
-      prisma.coverageItem.findMany({
-        where: { memberId: member.id, referencedAt: { gte: since } },
-        orderBy: { referencedAt: "desc" },
-      }),
-    ]);
+    const allPages = await prisma.requiredPage.findMany({
+      select: { id: true, name: true, url: true, cooldownHours: true },
+      orderBy: { createdAt: "asc" },
+    });
 
-    let visitedSet: Set<string>;
+    // Query within the widest cooldown window across all pages
+    const maxCooldownMs = allPages.reduce((m, p) => Math.max(m, p.cooldownHours * 60 * 60 * 1000), 60 * 60 * 1000);
+    const maxCooldownAgo = new Date(now - maxCooldownMs);
+
+    let recentVisits: { pageId: string; visitedAt: Date }[];
 
     if (freelancerId) {
-      // Account-centric: count pages visited by ANY bidder for this account in the last hour
-      const account = await prisma.account.findUnique({
-        where: { freelancerId },
-        select: { id: true },
-      });
+      const account = await prisma.account.findUnique({ where: { freelancerId }, select: { id: true } });
       if (account) {
-        const accountVisits = await prisma.pageVisit.findMany({
-          where: { accountId: account.id, visitedAt: { gte: since } },
-          select: { pageId: true },
+        recentVisits = await prisma.pageVisit.findMany({
+          where: { accountId: account.id, visitedAt: { gte: maxCooldownAgo } },
+          select: { pageId: true, visitedAt: true },
         });
-        visitedSet = new Set(accountVisits.map((v) => v.pageId));
       } else {
-        visitedSet = new Set();
+        recentVisits = [];
       }
     } else {
-      // Fallback: member-level coverage (no account context)
-      const memberVisits = await prisma.pageVisit.findMany({
-        where: { memberId: member.id, visitedAt: { gte: since } },
-        select: { pageId: true },
+      recentVisits = await prisma.pageVisit.findMany({
+        where: { memberId: member.id, visitedAt: { gte: maxCooldownAgo } },
+        select: { pageId: true, visitedAt: true },
       });
-      visitedSet = new Set(memberVisits.map((v) => v.pageId));
     }
+
+    // For each page, check if the most recent visit is within that page's own cooldown
+    const visitedSet = new Set<string>();
+    for (const page of allPages) {
+      const cooldownMs = page.cooldownHours * 60 * 60 * 1000;
+      const hasValidVisit = recentVisits.some(
+        (v) => v.pageId === page.id && now - v.visitedAt.getTime() <= cooldownMs
+      );
+      if (hasValidVisit) visitedSet.add(page.id);
+    }
+
+    const since = new Date(now - 8 * 60 * 60 * 1000);
+    const items = await prisma.coverageItem.findMany({
+      where: { memberId: member.id, referencedAt: { gte: since } },
+      orderBy: { referencedAt: "desc" },
+    });
 
     const unvisitedPages = allPages.filter((p) => !visitedSet.has(p.id));
     const totalItems = items.length;
@@ -59,7 +66,7 @@ export async function GET(req: NextRequest) {
         pages: { total: allPages.length, visited: visitedSet.size },
         items: { total: totalItems, captured: capturedItems },
       },
-      unvisited: unvisitedPages.map((p) => ({ ...p, type: "PAGE" })),
+      unvisited: unvisitedPages.map(({ cooldownHours: _, ...p }) => ({ ...p, type: "PAGE" })),
     });
 
   } catch (err) {
