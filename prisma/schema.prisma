@@ -36,11 +36,13 @@ model TeamMember {
   notesAuthored     CoachingNote[]   @relation("NoteAuthor")
   notesReceived     CoachingNote[]   @relation("NoteRecipient")
   auditEvents       AuditLog[]       @relation("AuditActor")
-  capturedSnapshots Snapshot[]
-  capturedProposals Proposal[]
-  capturedJobs      Job[]
+  capturedSnapshots   Snapshot[]
+  capturedProposals   Proposal[] @relation("ProposalCapturedBy")
+  submittedProposals  Proposal[] @relation("ProposalSubmittedBy")
+  capturedJobs        Job[]
   capturedAlerts    Alert[]
   pageVisits        PageVisit[]
+  visitLogs         VisitLog[]
 }
 
 model ExtensionToken {
@@ -117,6 +119,8 @@ model Account {
   jobs            Job[]
   alerts          Alert[]
   coverageItems   CoverageItem[]
+  pageVisits      PageVisit[]
+  visitLogs       VisitLog[]
 }
 
 model Alert {
@@ -273,14 +277,17 @@ model Proposal {
   clientPaymentVerified Boolean   @default(false)
   createdAt             DateTime  @default(now())
 
-  capturedByUserId String?
-  capturedByUser   TeamMember? @relation(fields: [capturedByUserId], references: [id])
-  capturedAt       DateTime?
+  capturedByUserId   String?
+  capturedByUser     TeamMember? @relation("ProposalCapturedBy", fields: [capturedByUserId], references: [id])
+  capturedAt         DateTime?
+  submittedByUserId  String?
+  submittedByUser    TeamMember? @relation("ProposalSubmittedBy", fields: [submittedByUserId], references: [id])
 
   coachingNotes CoachingNote[]
 
   @@index([accountId])
   @@index([capturedByUserId])
+  @@index([submittedByUserId])
 }
 
 model RequiredPage {
@@ -289,6 +296,7 @@ model RequiredPage {
   url       String
   createdAt DateTime    @default(now())
   visits    PageVisit[]
+  visitLogs VisitLog[]
 }
 
 model PageVisit {
@@ -297,9 +305,27 @@ model PageVisit {
   page      RequiredPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
   memberId  String
   member    TeamMember   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  accountId String?
+  account   Account?     @relation(fields: [accountId], references: [id])
   visitedAt DateTime     @default(now())
 
-  @@unique([pageId, memberId])
+  @@unique([pageId, memberId, accountId])
   @@index([memberId])
   @@index([pageId])
+  @@index([memberId, accountId])
+}
+
+model VisitLog {
+  id        String       @id @default(cuid())
+  pageId    String
+  page      RequiredPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    TeamMember   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  accountId String?
+  account   Account?     @relation(fields: [accountId], references: [id])
+  coveredAt DateTime     @default(now())
+
+  // Each row = one coverage event (bidder visited page while it was uncovered)
+  @@index([memberId, coveredAt])
+  @@index([coveredAt])
 }

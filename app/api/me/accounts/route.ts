@@ -23,7 +23,10 @@ export async function GET(req: NextRequest) {
           where: { capturedByUserId: member.id },
           orderBy: { createdAt: "desc" },
           take: 100,
-          include: { capturedByUser: { select: { id: true, name: true } } },
+          include: {
+            capturedByUser: { select: { id: true, name: true } },
+            submittedByUser: { select: { id: true, name: true } },
+          },
         },
         alerts: {
           where: { capturedByUserId: member.id, read: false },
@@ -207,6 +210,9 @@ export async function GET(req: NextRequest) {
           createdAt: p.createdAt,
           capturedBy: p.capturedByUser
             ? { id: p.capturedByUser.id, name: p.capturedByUser.name }
+            : null,
+          submittedBy: p.submittedByUser
+            ? { id: p.submittedByUser.id, name: p.submittedByUser.name }
             : null,
         })),
         proposalCount: account.proposals.length,

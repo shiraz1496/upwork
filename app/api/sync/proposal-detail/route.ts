@@ -38,7 +38,7 @@ export const POST = withAttribution(async ({ req, member }) => {
     const detailData = {
       ...(section ? { section } : {}),
       ...(status ? { status } : {}),
-      ...(submittedAt ? { submittedAt: new Date(submittedAt) } : {}),
+      ...(submittedAt ? { submittedAt: new Date(String(submittedAt).replace(/\s+at\s+/i, " ").trim()) } : {}),
       ...(submittedViaExtension != null ? { submittedViaExtension } : {}),
       ...(coverLetter ? { coverLetter } : {}),
       ...(clientNote ? { clientNote } : {}),
@@ -77,7 +77,11 @@ export const POST = withAttribution(async ({ req, member }) => {
     if (proposal) {
       await prisma.proposal.update({
         where: { id: proposal.id },
-        data: { ...detailData, ...(jobUrl && !proposal.jobUrl ? { jobUrl } : {}) },
+        data: {
+          ...detailData,
+          ...(jobUrl && !proposal.jobUrl ? { jobUrl } : {}),
+          ...(submittedViaExtension ? { submittedByUserId: member.id } : {}),
+        },
       });
       if (jobUrl) {
         await markCoverageCaptured({
@@ -108,6 +112,7 @@ export const POST = withAttribution(async ({ req, member }) => {
         submittedViaExtension: submittedViaExtension ?? false,
         ...detailData,
         ...firstCaptureFields(member),
+        ...(submittedViaExtension ? { submittedByUserId: member.id } : {}),
       },
     });
     if (jobUrl) {

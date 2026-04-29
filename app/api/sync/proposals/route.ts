@@ -8,7 +8,8 @@ const ACTIVE_SECTIONS = new Set(["Active", "Interviewing", "Offers"]);
 
 function tryParseDate(str: string): Date | null {
   if (!str) return null;
-  const d = new Date(str);
+  const cleaned = str.replace(/\s+at\s+/i, " ").trim();
+  const d = new Date(cleaned);
   return isNaN(d.getTime()) ? null : d;
 }
 

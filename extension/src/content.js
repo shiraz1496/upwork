@@ -857,6 +857,12 @@ async function scrapeProposalDetail() {
     }
   }
 
+  // ── Submission timestamp — "Initiated Apr 27, 2026" or "Initiated Apr 27, 2026 at 3:45 PM" ──
+  const initiatedMatch = text.match(
+    /(?:Initiated|Received|Submitted)\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s*\d{4}(?:\s+(?:at\s+)?\d{1,2}:\d{2}\s*(?:AM|PM))?)/i
+  );
+  if (initiatedMatch) proposal.submittedAt = initiatedMatch[1].trim();
+
   // ── Job Posted Date — "Posted Apr 16, 2026" ──
   const postedMatch = text.match(/Posted\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s*\d{4})/i);
   if (postedMatch) proposal.jobPostedDate = postedMatch[1].trim();
@@ -1156,7 +1162,7 @@ function watchApplyPage() {
     //   "Submit a Proposal" / "Submit Proposal"  (older / free submit)
     //   "Send Proposal"              (fallback)
     const submitPatterns = [
-      /send\s+for\s+\d+\s+connects?/i,
+      /send\s+for\s+\d+\+?\s*connects?/i,
       /submit(\s+a)?\s+proposal/i,
       /send\s+proposal/i,
     ];
@@ -1186,16 +1192,16 @@ function watchApplyPage() {
         return;
       }
 
-      if (elapsed > 300) {
+      if (elapsed > 2000) {
         const errText = document.body.innerText;
-        if (/\b(a cover letter is required|value is required and can't be empty|enter a rate-increase|enter a [a-z -]{3,40}|this field is required|please enter)\b/i.test(errText)) {
+        if (/\b(a cover letter is required|value is required and can't be empty|enter a rate-increase|this field is required)\b/i.test(errText)) {
           clearInterval(timer);
           console.log("[UT] Submission blocked by validation — discarded.");
           return;
         }
       }
 
-      if (elapsed > 6000) {
+      if (elapsed > 15000) {
         clearInterval(timer);
         console.log("[UT] Submission check timeout — discarded (no URL change).");
       }
@@ -1204,8 +1210,10 @@ function watchApplyPage() {
 }
 
 function scrapeApplySubmission() {
+  const now = new Date().toISOString();
   const submission = {
-    capturedAt: new Date().toISOString(),
+    capturedAt: now,
+    submittedAt: now,
     detailUrl: window.location.href,
     submittedViaExtension: true,
     section: "Submitted proposals",
@@ -1214,6 +1222,8 @@ function scrapeApplySubmission() {
   // Job id/url from the apply URL
   const jobIdMatch = window.location.href.match(/\/job\/~(\w{15,})/);
   if (jobIdMatch) submission.url = "https://www.upwork.com/jobs/~" + jobIdMatch[1];
+  
+  const bodyText = document.body.innerText;
 
   // Title — try multiple strategies, in order of reliability:
   // 1. document.title (browser tab usually carries the job title)
@@ -1292,7 +1302,6 @@ function scrapeApplySubmission() {
   if (coverParts.length > 0) submission.coverLetter = coverParts.join("\n\n");
 
   // Proposed rate: number input near "hourly rate" label, or any $-prefixed input
-  const bodyText = document.body.innerText;
   const rateInputs = Array.from(document.querySelectorAll('input[type="number"], input[type="text"]'))
     .filter((i) => {
       const nearby = (i.closest("label, [class*='field'], [class*='form-group'], div")?.innerText || "").toLowerCase();

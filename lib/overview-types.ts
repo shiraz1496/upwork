@@ -100,6 +100,7 @@ export interface ProposalData {
   clientPaymentVerified: boolean;
   createdAt: string;
   capturedBy: { id: string; name: string } | null;
+  submittedBy: { id: string; name: string } | null;
 }
 
 export interface AlertData {

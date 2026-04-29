@@ -21,7 +21,9 @@ import {
   computeDeltas,
   computeTimeSeriesData,
   computeFunnelData,
+  computeSnapshotTimeline,
   fmt,
+  type TimelineEntry,
 } from "@/lib/overview-aggregation";
 
 const COLORS = {
@@ -84,6 +86,7 @@ export function OverviewPanel({
   const deltas = useMemo(() => computeDeltas(accounts, range), [accounts, range]);
   const timeSeriesData = useMemo(() => computeTimeSeriesData(accounts, range), [accounts, range]);
   const funnelData = useMemo(() => computeFunnelData(aggregated), [aggregated]);
+  const timeline = useMemo(() => computeSnapshotTimeline(accounts, range), [accounts, range]);
 
   const rangeLabel = range === "7d" ? "7" : range === "30d" ? "30" : "90";
 
@@ -159,6 +162,9 @@ export function OverviewPanel({
         />
       </div>
 
+      {/* ── Snapshot Timeline strip ───────────────────────────────────────── */}
+      {/* <SnapshotTimeline entries={timeline} range={range} /> */}
+
       <SectionTitle>Conversion Pipeline</SectionTitle>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
@@ -212,128 +218,75 @@ export function OverviewPanel({
         </div>
       </div>
 
-      {timeSeriesData.length > 1 && (
-        <>
-          <SectionTitle>Trends Over Time</SectionTitle>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-              <h3 className="text-sm font-semibold text-gray-600 mb-4">Proposals Over Time</h3>
-              <ResponsiveContainer width="100%" height={280}>
-                <AreaChart data={timeSeriesData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
-                  <XAxis
-                    dataKey="date"
-                    stroke={CHART_AXIS_COLOR}
-                    tick={{ fill: CHART_TICK_COLOR, fontSize: 11 }}
-                  />
-                  <YAxis stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 12 }} />
-                  <Tooltip {...CHART_TOOLTIP_STYLE} />
-                  <Legend />
-                  <Area
-                    type="monotone"
-                    dataKey="sent"
-                    name="Sent"
-                    stroke={COLORS.blue}
-                    fill={COLORS.blue}
-                    fillOpacity={0.08}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="viewed"
-                    name="Viewed"
-                    stroke={COLORS.cyan}
-                    fill={COLORS.cyan}
-                    fillOpacity={0.08}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="interviewed"
-                    name="Interviewed"
-                    stroke={COLORS.purple}
-                    fill={COLORS.purple}
-                    fillOpacity={0.08}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="hired"
-                    name="Hired"
-                    stroke={COLORS.green}
-                    fill={COLORS.green}
-                    fillOpacity={0.08}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+      <SectionTitle>Trends Over Time</SectionTitle>
+      {timeSeriesData.length <= 1 ? (
+        <div className="bg-white border border-dashed border-gray-200 rounded-xl p-8 text-center">
+          <svg
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
+            strokeLinecap="round" strokeLinejoin="round"
+            className="w-8 h-8 text-gray-300 mx-auto mb-3"
+          >
+            <path d="M3 3v18h18" />
+            <path d="M7 15l4-8 4 6 4-10" />
+          </svg>
+          <p className="text-sm font-medium text-gray-400">Not enough data yet</p>
+          <p className="text-xs text-gray-300 mt-1">
+            Capture another snapshot to start seeing trends
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-600 mb-4">Proposals Over Time</h3>
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart data={timeSeriesData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+                <XAxis
+                  dataKey="date"
+                  stroke={CHART_AXIS_COLOR}
+                  tick={{ fill: CHART_TICK_COLOR, fontSize: 11 }}
+                />
+                <YAxis stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 12 }} />
+                <Tooltip {...CHART_TOOLTIP_STYLE} />
+                <Legend />
+                <Area type="monotone" dataKey="sent" name="Sent" stroke={COLORS.blue} fill={COLORS.blue} fillOpacity={0.08} />
+                <Area type="monotone" dataKey="viewed" name="Viewed" stroke={COLORS.cyan} fill={COLORS.cyan} fillOpacity={0.08} />
+                <Area type="monotone" dataKey="interviewed" name="Interviewed" stroke={COLORS.purple} fill={COLORS.purple} fillOpacity={0.08} />
+                <Area type="monotone" dataKey="hired" name="Hired" stroke={COLORS.green} fill={COLORS.green} fillOpacity={0.08} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
 
+          <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-600 mb-4">Conversion Rates Over Time</h3>
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={timeSeriesData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+                <XAxis dataKey="date" stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 11 }} />
+                <YAxis stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 12 }} unit="%" />
+                <Tooltip {...CHART_TOOLTIP_STYLE} />
+                <Legend />
+                <Line type="monotone" dataKey="viewRate" name="View Rate" stroke={COLORS.cyan} strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="hireRate" name="Hire Rate" stroke={COLORS.green} strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          {timeSeriesData.some((d) => d.jss !== null) && (
             <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-              <h3 className="text-sm font-semibold text-gray-600 mb-4">Conversion Rates Over Time</h3>
+              <h3 className="text-sm font-semibold text-gray-600 mb-4">JSS Trend</h3>
               <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={timeSeriesData}>
+                <LineChart data={timeSeriesData.filter((d) => d.jss !== null)}>
                   <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
-                  <XAxis
-                    dataKey="date"
-                    stroke={CHART_AXIS_COLOR}
-                    tick={{ fill: CHART_TICK_COLOR, fontSize: 11 }}
-                  />
-                  <YAxis
-                    stroke={CHART_AXIS_COLOR}
-                    tick={{ fill: CHART_TICK_COLOR, fontSize: 12 }}
-                    unit="%"
-                  />
+                  <XAxis dataKey="date" stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 11 }} />
+                  <YAxis stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 12 }} domain={[0, 100]} unit="%" />
                   <Tooltip {...CHART_TOOLTIP_STYLE} />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="viewRate"
-                    name="View Rate"
-                    stroke={COLORS.cyan}
-                    strokeWidth={2}
-                    dot={{ r: 3 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="hireRate"
-                    name="Hire Rate"
-                    stroke={COLORS.green}
-                    strokeWidth={2}
-                    dot={{ r: 3 }}
-                  />
+                  <Line type="monotone" dataKey="jss" name="JSS" stroke={COLORS.green} strokeWidth={2} dot={{ r: 3 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
-
-            {timeSeriesData.some((d) => d.jss !== null) && (
-              <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-                <h3 className="text-sm font-semibold text-gray-600 mb-4">JSS Trend</h3>
-                <ResponsiveContainer width="100%" height={280}>
-                  <LineChart data={timeSeriesData.filter((d) => d.jss !== null)}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
-                    <XAxis
-                      dataKey="date"
-                      stroke={CHART_AXIS_COLOR}
-                      tick={{ fill: CHART_TICK_COLOR, fontSize: 11 }}
-                    />
-                    <YAxis
-                      stroke={CHART_AXIS_COLOR}
-                      tick={{ fill: CHART_TICK_COLOR, fontSize: 12 }}
-                      domain={[0, 100]}
-                      unit="%"
-                    />
-                    <Tooltip {...CHART_TOOLTIP_STYLE} />
-                    <Line
-                      type="monotone"
-                      dataKey="jss"
-                      name="JSS"
-                      stroke={COLORS.green}
-                      strokeWidth={2}
-                      dot={{ r: 3 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-        </>
+          )}
+        </div>
       )}
 
       {showAccountComparison && accounts.length > 1 && (
@@ -430,5 +383,91 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
     <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-8 mb-4">
       {children}
     </h2>
+  );
+}
+
+// ─── Snapshot Timeline Strip ─────────────────────────────────────────────────
+
+function SnapshotTimeline({ entries, range }: { entries: TimelineEntry[]; range: OverviewRange }) {
+  const rangeLabel = range === "7d" ? "7 days" : range === "30d" ? "30 days" : "90 days";
+
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="mt-6 mb-2">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          Snapshot History
+        </h2>
+        <span className="text-[11px] text-gray-400">
+          {entries.length} reading{entries.length !== 1 ? "s" : ""} · rolling {rangeLabel}
+        </span>
+      </div>
+
+      {/* Scrollable row */}
+      <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+        {entries.map((entry) => (
+          <div
+            key={entry.capturedAt}
+            className={`flex-shrink-0 rounded-xl border p-4 flex flex-col gap-2 min-w-[140px] transition-shadow ${
+              entry.isLatest
+                ? "border-teal-400 bg-teal-50 shadow-sm shadow-teal-100"
+                : "border-gray-200 bg-white hover:shadow-sm"
+            }`}
+          >
+            {/* Date + Latest badge */}
+            <div className="flex items-center justify-between gap-2">
+              <span
+                className={`text-xs font-semibold ${
+                  entry.isLatest ? "text-teal-700" : "text-gray-500"
+                }`}
+              >
+                {entry.date}
+              </span>
+              {entry.isLatest && (
+                <span className="text-[9px] font-bold uppercase tracking-wide bg-teal-500 text-white px-1.5 py-0.5 rounded-full">
+                  Latest
+                </span>
+              )}
+            </div>
+
+            {/* Metrics */}
+            <div className="flex flex-col gap-1">
+              <TimelineMetricRow label="Sent" value={entry.sent} color="#3b82f6" />
+              <TimelineMetricRow label="Viewed" value={entry.viewed} color="#06b6d4" />
+              <TimelineMetricRow label="Hired" value={entry.hired} color="#22c55e" />
+            </div>
+
+            {/* View rate */}
+            <div
+              className={`text-[11px] font-medium mt-0.5 ${
+                entry.isLatest ? "text-teal-600" : "text-gray-400"
+              }`}
+            >
+              {entry.viewRate}% view rate
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TimelineMetricRow({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-[11px] text-gray-400">{label}</span>
+      <span className="text-[13px] font-semibold" style={{ color }}>
+        {fmt(value)}
+      </span>
+    </div>
   );
 }
