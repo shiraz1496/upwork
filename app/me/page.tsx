@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OverviewPanel } from "@/components/OverviewPanel";
-import type { AccountData, OverviewRange } from "@/lib/overview-types";
+import type { AccountData, OverviewRange, ProposalData } from "@/lib/overview-types";
 
 type CoveragePayload = {
   member: { id: string; name: string };
@@ -25,7 +25,7 @@ type NotesPayload = {
   notes: Note[];
 };
 
-type MeTab = "overview" | "coverage" | "notes";
+type MeTab = "overview" | "coverage" | "notes" | "untracked";
 
 const iconProps = {
   viewBox: "0 0 24 24",
@@ -60,6 +60,14 @@ const IconSignOut = () => (
     <line x1="21" y1="12" x2="9" y2="12" />
   </svg>
 );
+const IconFileX = () => (
+  <svg {...iconProps}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="10" y1="13" x2="14" y2="17" />
+    <line x1="14" y1="13" x2="10" y2="17" />
+  </svg>
+);
 
 
 export default function MePage() {
@@ -77,23 +85,38 @@ export default function MePage() {
   const [markingRead, setMarkingRead] = useState<string | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const loadAccounts = useCallback(async () => {
-    const res = await fetch("/api/me/accounts", { cache: "no-store" });
-    if (res.status === 401) {
-      window.location.href = "/me/login";
-      return;
+  const loadCoverage = useCallback(async (accountId?: string, accountsList?: AccountData[] | null) => {
+    let url = "/api/me/coverage";
+    const id = accountId ?? selectedAccountId;
+    const list = accountsList ?? accounts;
+    if (id !== "all" && list) {
+      const account = list.find((a) => a.id === id);
+      if (account?.freelancerId) url += `?freelancerId=${encodeURIComponent(account.freelancerId)}`;
+    } else if (list?.length === 1 && list[0].freelancerId) {
+      url += `?freelancerId=${encodeURIComponent(list[0].freelancerId)}`;
     }
-    if (res.ok) setAccounts(await res.json());
-  }, []);
-
-  const loadCoverage = useCallback(async () => {
-    const res = await fetch("/api/me/coverage", { cache: "no-store" });
+    const res = await fetch(url, { cache: "no-store" });
     if (res.status === 401) {
       window.location.href = "/me/login";
       return;
     }
     if (res.ok) setCoverage(await res.json());
-  }, []);
+  }, [selectedAccountId, accounts]);
+
+    const loadAccounts = useCallback(async () => {
+    const res = await fetch("/api/me/accounts", { cache: "no-store" });
+    if (res.status === 401) {
+      window.location.href = "/me/login";
+      return;
+    }
+    if (res.ok) {
+      const data = await res.json();
+      setAccounts(data);
+      // Reload coverage with the freshly loaded accounts list so the
+      // first render uses account-level coverage, not member-level.
+      loadCoverage(undefined, data);
+    }
+  }, [loadCoverage]);
 
   const loadNotes = useCallback(async () => {
     const res = await fetch("/api/me/notes", { cache: "no-store" });
@@ -127,6 +150,10 @@ export default function MePage() {
   useEffect(() => {
     loadStats(selectedAccountId);
   }, [selectedAccountId, loadStats]);
+
+  useEffect(() => {
+    if (accounts) loadCoverage();
+  }, [selectedAccountId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     function tick() {
@@ -180,6 +207,15 @@ export default function MePage() {
     [myAccounts, selectedAccountId],
   );
 
+  const untrackedProposals = useMemo<ProposalData[]>(
+    () =>
+      scopedAccounts
+        .flatMap((a) => a.proposals)
+        .filter((p) => !p.submittedViaExtension && !p.coverLetter)
+        .sort((a, b) => new Date(b.submittedAt || b.createdAt).getTime() - new Date(a.submittedAt || a.createdAt).getTime()),
+    [scopedAccounts],
+  );
+
   const TABS: { id: MeTab; label: string; icon: React.ReactNode; count: number | null }[] = [
     { id: "overview", label: "Overview", icon: <IconHome />, count: null },
     {
@@ -193,6 +229,12 @@ export default function MePage() {
       label: "Coaching notes",
       icon: <IconMessage />,
       count: notes?.unreadCount ?? null,
+    },
+    {
+      id: "untracked",
+      label: "Unscanned Proposals",
+      icon: <IconFileX />,
+      count: untrackedProposals.length > 0 ? untrackedProposals.length : null,
     },
   ];
   const activeTabLabel = TABS.find((t) => t.id === activeTab)?.label ?? "Overview";
@@ -246,7 +288,6 @@ export default function MePage() {
               onChange={(e) => setSelectedAccountId(e.target.value)}
               className="w-full mt-1.5 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
             >
-              <option value="all">All accounts</option>
               {myAccounts.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -282,16 +323,28 @@ export default function MePage() {
           </div>
         </header>
 
-        {coverage && coverage.coveragePct < 80 && (
-          <div className="mx-6 mt-4 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-center gap-2">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 shrink-0">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-              <line x1="12" y1="9" x2="12" y2="13"/>
-              <line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-            Your page coverage is {coverage.coveragePct}% — open the required pages to stay on track.
-          </div>
-        )}
+        <div className="flex flex-col gap-2 mx-6 mt-4 empty:hidden">
+          {coverage && coverage.coveragePct < 80 && (
+            <div className="px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-center gap-2">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 shrink-0">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              Your page coverage is {coverage.coveragePct}% — open the required pages to stay on track.
+            </div>
+          )}
+          {untrackedProposals.length > 0 && (
+            <div className="px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-center gap-2">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 shrink-0">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              You have {untrackedProposals.length} unscanned proposal{untrackedProposals.length !== 1 ? "s" : ""} — open them on Upwork with the extension active so cover letters and client details are captured.
+            </div>
+          )}
+        </div>
 
         <div className="flex-1 px-6 pb-6 overflow-auto">
           {activeTab === "overview" &&
@@ -551,6 +604,59 @@ export default function MePage() {
                     </li>
                   ))}
                 </ul>
+              )}
+            </section>
+          )}
+
+          {activeTab === "untracked" && (
+            <section className="mt-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-base font-semibold text-gray-900">Unscanned Proposals</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Proposals synced from your Upwork list but not captured by the extension at submission time — cover letter and client details may be missing.
+                  </p>
+                </div>
+                <span className="text-xs text-gray-400">{untrackedProposals.length} total</span>
+              </div>
+
+              {untrackedProposals.length === 0 ? (
+                <div className="bg-white border border-gray-200 rounded-xl py-16 text-center text-gray-400 text-sm">
+                  All your proposals were scanned via the extension
+                </div>
+              ) : (
+                <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 bg-gray-50">
+                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Job Title</th>
+                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Section</th>
+                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Profile</th>
+                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Submitted</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {untrackedProposals.map((p) => (
+                        <tr key={p.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-3 max-w-md">
+                            {p.jobUrl ? (
+                              <a href={p.jobUrl} target="_blank" rel="noopener noreferrer" className="text-teal-600 font-medium hover:underline truncate block">
+                                {p.jobTitle || "Untitled"}
+                              </a>
+                            ) : (
+                              <span className="text-gray-700 font-medium truncate block">{p.jobTitle || "Untitled"}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-500">{p.section || "—"}</td>
+                          <td className="px-4 py-3 text-xs text-gray-500">{p.profileUsed || "—"}</td>
+                          <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                            {new Date(p.submittedAt || p.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </section>
           )}

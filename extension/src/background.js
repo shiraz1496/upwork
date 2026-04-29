@@ -34,8 +34,10 @@ chrome.webNavigation.onCommitted.addListener(
 chrome.webNavigation.onCompleted.addListener(
   (details) => {
     if (details.frameId !== 0) return;
-    checkUrlAgainstRequiredPages(details.url).catch(() => {});
-    checkCoverageAndNotify(details.tabId).catch(() => {});
+    // Record visit first, then check coverage so the visit is already saved
+    checkUrlAgainstRequiredPages(details.url)
+      .catch(() => {})
+      .finally(() => checkCoverageAndNotify(details.tabId).catch(() => {}));
   },
   { url: [{ hostContains: "upwork.com" }] }
 );
@@ -44,6 +46,14 @@ chrome.webNavigation.onCompleted.addListener(
 async function getFreelancerId() {
   const data = await chrome.storage.local.get(["canonicalUserId", "lastAccountInfo"]);
   return data.canonicalUserId || data.lastAccountInfo?.userId || null;
+}
+
+// ── Get the CURRENTLY BROWSED account's freelancerId (for coverage tracking) ──
+// Unlike getFreelancerId(), this always reflects the active Upwork account,
+// even when canonicalUserId is locked to a different (bidder's own) account.
+async function getCurrentAccountId() {
+  const data = await chrome.storage.local.get(["detectedAccountId", "canonicalUserId", "lastAccountInfo"]);
+  return data.detectedAccountId || data.canonicalUserId || data.lastAccountInfo?.userId || null;
 }
 
 async function getAccountName() {
@@ -174,13 +184,18 @@ async function postPageVisit(pageId) {
   const token = await getAuthToken();
   if (!token) return;
   const backendUrl = await getBackendUrl();
+  const freelancerId = await getCurrentAccountId();
   try {
-    await fetch(`${backendUrl}/api/coverage/visit`, {
+    const res = await fetch(`${backendUrl}/api/coverage/visit`, {
       method: "POST",
       headers: backendHeaders(token, backendUrl, { "Content-Type": "application/json" }),
-      body: JSON.stringify({ pageId }),
+      body: JSON.stringify({ pageId, ...(freelancerId ? { freelancerId } : {}) }),
     });
-    console.log("[UT BG] Recorded visit for page", pageId);
+    if (!res.ok) {
+      console.warn("[UT BG] postPageVisit failed:", res.status);
+      return;
+    }
+    console.log("[UT BG] Recorded visit for page", pageId, "account:", freelancerId ?? "unknown");
   } catch (e) {
     console.warn("[UT BG] postPageVisit error", e);
   }
@@ -204,8 +219,10 @@ async function checkCoverageAndNotify(tabId) {
   const token = await getAuthToken();
   if (!token) return;
   const backendUrl = await getBackendUrl();
+  const freelancerId = await getCurrentAccountId();
   try {
-    const res = await fetch(`${backendUrl}/api/me/coverage`, {
+    const params = freelancerId ? `?freelancerId=${encodeURIComponent(freelancerId)}` : "";
+    const res = await fetch(`${backendUrl}/api/me/coverage${params}`, {
       headers: backendHeaders(token, backendUrl),
     });
     if (!res.ok) return;
@@ -302,6 +319,11 @@ async function handleAccountDetected(payload) {
     console.log("[UT BG] Rejecting non-freelancer ID:", userId);
     return { ok: true, note: "invalid id format" };
   }
+
+  // Always track the currently browsed account for coverage page-visit tracking.
+  // This is separate from canonicalUserId which is locked to the bidder's own account.
+  await chrome.storage.local.set({ detectedAccountId: userId });
+  console.log("[UT BG] detectedAccountId →", userId);
 
   // Don't overwrite canonical ID if already set with a different ID
   const existing = await chrome.storage.local.get(["canonicalUserId", "lastAccountInfo"]);
@@ -444,11 +466,7 @@ async function handleScrapedApplySubmit(payload) {
   const fid = await getFreelancerId();
   if (!fid) return { ok: false, note: "No userId" };
   console.log("[UT BG] Apply submit:", payload.title, "cover len:", payload.coverLetter?.length);
-  return syncToBackend("/api/sync/proposal-detail", {
-    freelancerId: fid,
-    ...payload,
-    submittedAt: payload.capturedAt,
-  });
+  return syncToBackend("/api/sync/proposal-detail", { freelancerId: fid, ...payload });
 }
 
 // ════════════════════════════════════════════════════

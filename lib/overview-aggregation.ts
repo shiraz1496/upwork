@@ -45,6 +45,19 @@ export type TimeSeriesRow = {
   hireRate: number;
 };
 
+export type TimelineEntry = {
+  date: string;           // "Apr 28"
+  capturedAt: string;     // raw ISO for sorting
+  sent: number;
+  viewed: number;
+  interviewed: number;
+  hired: number;
+  connectsBalance: number | null;
+  jss: number | null;
+  viewRate: number;
+  isLatest: boolean;
+};
+
 function fmtDate(d: string): string {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
@@ -175,18 +188,74 @@ export function computeTimeSeriesData(
       }
     }
   }
-  return Array.from(byDate.entries()).map(([date, d]) => ({
-    date,
-    sent: d.sent,
-    viewed: d.viewed,
-    interviewed: d.interviewed,
-    hired: d.hired,
-    boostedSent: d.boostedSent,
-    organicSent: d.organicSent,
-    jss: d.jss,
-    connectsBalance: d.connectsBalance,
-    viewRate: d.sent > 0 ? Math.round((d.viewed / d.sent) * 1000) / 10 : 0,
-    hireRate: d.sent > 0 ? Math.round((d.hired / d.sent) * 1000) / 10 : 0,
+  return Array.from(byDate.entries())
+    .map(([date, d]) => ({
+      date,
+      sent: d.sent,
+      viewed: d.viewed,
+      interviewed: d.interviewed,
+      hired: d.hired,
+      boostedSent: d.boostedSent,
+      organicSent: d.organicSent,
+      jss: d.jss,
+      connectsBalance: d.connectsBalance,
+      viewRate: d.sent > 0 ? Math.round((d.viewed / d.sent) * 1000) / 10 : 0,
+      hireRate: d.sent > 0 ? Math.round((d.hired / d.sent) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => {
+      // byDate key is fmtDate ("Apr 28") which isn't sortable directly;
+      // re-sort by the underlying capturedAt stored in the map entry
+      const ma = byDate.get(a.date);
+      const mb = byDate.get(b.date);
+      if (!ma || !mb) return 0;
+      return new Date(ma.capturedAt).getTime() - new Date(mb.capturedAt).getTime();
+    });
+}
+
+// ─── Snapshot Timeline ────────────────────────────────────────────────────────
+// Returns one entry per calendar day (latest snapshot that day), sorted
+// ascending, with the most recent marked isLatest = true.
+export function computeSnapshotTimeline(
+  accounts: AccountData[],
+  range: OverviewRange,
+): TimelineEntry[] {
+  // Collect all snapshots for this range across all accounts
+  const all = accounts.flatMap((a) =>
+    a.snapshots.filter((s) => s.range === range),
+  );
+
+  // Group by calendar day (YYYY-MM-DD), keeping the latest snapshot per day
+  const byDay = new Map<string, SnapshotSummary>();
+  for (const s of all) {
+    const day = new Date(s.capturedAt).toISOString().slice(0, 10); // "2024-04-28"
+    const existing = byDay.get(day);
+    if (
+      !existing ||
+      new Date(s.capturedAt).getTime() > new Date(existing.capturedAt).getTime()
+    ) {
+      byDay.set(day, s);
+    }
+  }
+
+  // Sort ascending by day
+  const sorted = Array.from(byDay.entries()).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+
+  return sorted.map(([, s], i) => ({
+    date: new Date(s.capturedAt).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    }),
+    capturedAt: s.capturedAt,
+    sent: s.sent,
+    viewed: s.viewed,
+    interviewed: s.interviewed,
+    hired: s.hired,
+    connectsBalance: s.connectsBalance,
+    jss: s.jss,
+    viewRate: s.viewRate,
+    isLatest: i === sorted.length - 1,
   }));
 }
 
