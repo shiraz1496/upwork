@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { TeamView } from "@/components/admin/TeamView";
 import { TeamStatsView } from "@/components/admin/TeamStatsView";
 import { AuditView } from "@/components/admin/AuditView";
@@ -148,12 +148,12 @@ function DrawerField({ label, value }: { label: string; value: React.ReactNode }
   );
 }
 
-function JobDrawer({ job, onClose }: { job: JobData; onClose: () => void }) {
+const JobDrawer = React.memo(function JobDrawer({ job, onClose }: { job: JobData; onClose: () => void }) {
   return (
     <>
       {/* Overlay */}
       <div
-        className="fixed inset-0 bg-black/20 backdrop-blur-[1px] z-40"
+        className="fixed inset-0 bg-black/10 z-40"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -162,7 +162,7 @@ function JobDrawer({ job, onClose }: { job: JobData; onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-label={job.title}
-        className="fixed right-0 top-0 h-full w-full max-w-lg bg-white z-50 shadow-2xl overflow-y-auto flex flex-col"
+        className="fixed right-0 top-0 h-full w-full max-w-lg bg-white z-50 shadow-2xl overflow-y-auto flex flex-col will-change-transform"
       >
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-start justify-between gap-4">
@@ -222,16 +222,14 @@ function JobDrawer({ job, onClose }: { job: JobData; onClose: () => void }) {
           <section>
             <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Client Information</h3>
             <dl className="grid grid-cols-2 gap-3">
-              {job.clientRating != null && (
                 <div className="col-span-2">
                   <dt className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Rating</dt>
                   <dd className="flex items-center gap-2 text-sm">
-                    <StarRating rating={job.clientRating} />
-                    <span className="font-medium text-gray-800">{job.clientRating}</span>
+                    {job.clientRating != null && <StarRating rating={job.clientRating} />}
+                    <span className="font-medium text-gray-800">{job.clientRating ?? "No rating"}</span>
                     {job.clientReviews != null && <span className="text-gray-400">({job.clientReviews} reviews)</span>}
                   </dd>
                 </div>
-              )}
               <DrawerField
                 label="Verified"
                 value={
@@ -271,9 +269,11 @@ function JobDrawer({ job, onClose }: { job: JobData; onClose: () => void }) {
       </div>
     </>
   );
-}
+});
 
-function ProposalDrawer({ proposal, onClose }: { proposal: ProposalData; onClose: () => void }) {
+// ─── Proposal Drawer ──────────────────────────────────────────────────────────
+
+const ProposalDrawer = React.memo(function ProposalDrawer({ proposal, onClose }: { proposal: ProposalData; onClose: () => void }) {
   const [noteBody, setNoteBody] = useState("");
   const [noteSending, setNoteSending] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
@@ -305,17 +305,18 @@ function ProposalDrawer({ proposal, onClose }: { proposal: ProposalData; onClose
 
   const sectionVariant = (sec: string | null): "teal" | "blue" | "purple" | "green" | "gray" => {
     if (!sec) return "gray";
-    if (sec.toLowerCase().includes("offer")) return "teal";
-    if (sec.toLowerCase().includes("invite")) return "purple";
-    if (sec.toLowerCase().includes("active")) return "green";
-    if (sec.toLowerCase().includes("submitted")) return "blue";
+    const s = sec.toLowerCase();
+    if (s.includes("offer")) return "teal";
+    if (s.includes("invite") || s.includes("interview")) return "purple";
+    if (s.includes("active")) return "green";
+    if (s.includes("submitted")) return "blue";
     return "gray";
   };
 
   return (
     <>
       <div
-        className="fixed inset-0 bg-black/20 backdrop-blur-[1px] z-40"
+        className="fixed inset-0 bg-black/10 z-40"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -323,7 +324,7 @@ function ProposalDrawer({ proposal, onClose }: { proposal: ProposalData; onClose
         role="dialog"
         aria-modal="true"
         aria-label={proposal.jobTitle ?? "Proposal"}
-        className="fixed right-0 top-0 h-full w-full max-w-lg bg-white z-50 shadow-2xl overflow-y-auto flex flex-col"
+        className="fixed right-0 top-0 h-full w-full max-w-lg bg-white z-50 shadow-2xl overflow-y-auto flex flex-col will-change-transform"
       >
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-start justify-between gap-4">
@@ -436,8 +437,8 @@ function ProposalDrawer({ proposal, onClose }: { proposal: ProposalData; onClose
                 <div className="col-span-2">
                   <dt className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Rating</dt>
                   <dd className="flex items-center gap-2 text-sm">
-                    <StarRating rating={proposal.clientRating} />
-                    <span className="font-medium text-gray-800">{proposal.clientRating}</span>
+                    {proposal.clientRating != null && <StarRating rating={proposal.clientRating} />}
+                    <span className="font-medium text-gray-800">{proposal.clientRating ?? "No rating"}</span>
                     {proposal.clientReviews != null && <span className="text-gray-400">({proposal.clientReviews} reviews)</span>}
                   </dd>
                 </div>
@@ -522,7 +523,7 @@ function ProposalDrawer({ proposal, onClose }: { proposal: ProposalData; onClose
       </div>
     </>
   );
-}
+});
 
 // AlertData moved to @/lib/overview-types
 
@@ -586,6 +587,18 @@ export default function Dashboard() {
     setCoverageAlertExpanded(false);
   }
   const [proposalSearch, setProposalSearch] = useState("");
+
+  // Lock body scroll when drawer is open
+  useEffect(() => {
+    if (selectedJob || selectedProposal) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [selectedJob, selectedProposal]);
 
   useEffect(() => {
     setLoading(true);
@@ -1039,7 +1052,7 @@ export default function Dashboard() {
             </div>
             {/* Expanded detail */}
             {coverageAlertExpanded && (
-              <ul className="border-t border-amber-200 divide-y divide-amber-100 max-h-40 overflow-y-auto">
+              <ul className="border-t border-amber-200 divide-y divide-amber-100 max-h-26 overflow-y-auto">
                 {coverageAlert.accounts.map(a => (
                   <li key={a.id} className="px-3 py-2">
                     <div className="flex items-center justify-between mb-1">
