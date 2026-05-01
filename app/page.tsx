@@ -680,11 +680,18 @@ export default function Dashboard() {
     [overviewAccounts],
   );
 
+  const [jobsSortAsc, setJobsSortAsc] = useState(false);
+  const [proposalsSortAsc, setProposalsSortAsc] = useState(false);
+
   const allJobs = useMemo(() => {
     const accs = selected ? [selected] : accounts;
     const rows = accs.flatMap((a) => a.jobs || []);
-    return memberFilter === "all" ? rows : rows.filter((j) => j.capturedBy?.id === memberFilter);
-  }, [accounts, selected, memberFilter]);
+    const filtered = memberFilter === "all" ? rows : rows.filter((j) => j.capturedBy?.id === memberFilter);
+    return [...filtered].sort((a, b) => {
+      const diff = new Date(b.viewedAt).getTime() - new Date(a.viewedAt).getTime();
+      return jobsSortAsc ? -diff : diff;
+    });
+  }, [accounts, selected, memberFilter, jobsSortAsc]);
 
   const allProposals = useMemo(() => {
     const accs = selected ? [selected] : accounts;
@@ -710,12 +717,12 @@ export default function Dashboard() {
       if (!sections.has(sec)) sections.set(sec, []);
       sections.get(sec)!.push(p);
     }
-    // Sort each section by submittedAt desc (newest first), matching Upwork's list order.
+    // Sort each section by submittedAt, direction controlled by proposalsSortAsc.
     for (const [, props] of sections) {
       props.sort((a, b) => {
         const ta = new Date(a.submittedAt || a.createdAt).getTime();
         const tb = new Date(b.submittedAt || b.createdAt).getTime();
-        return tb - ta;
+        return proposalsSortAsc ? ta - tb : tb - ta;
       });
     }
     const ARCHIVE_SECTIONS = ["Archived proposals", "Archived interviews"];
@@ -723,7 +730,7 @@ export default function Dashboard() {
     return Array.from(sections.entries())
       .filter(([sec]) => !ARCHIVE_SECTIONS.includes(sec))
       .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
-  }, [allProposals]);
+  }, [allProposals, proposalsSortAsc]);
 
   const archivedSections = useMemo(() => {
     const ARCHIVE_SECTIONS = ["Archived proposals", "Archived interviews"];
@@ -1188,7 +1195,17 @@ export default function Dashboard() {
                         <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Client</th>
                         <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Skills</th>
                         <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Captured By</th>
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Viewed</th>
+                        <th className="text-left px-4 py-3 text-xs uppercase tracking-wide">
+                          <button
+                            onClick={() => setJobsSortAsc(v => !v)}
+                            className="flex items-center gap-1 font-medium text-gray-500 hover:text-gray-800 transition-colors uppercase"
+                          >
+                            Viewed
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`w-3 h-3 transition-transform ${jobsSortAsc ? "rotate-180" : ""}`}>
+                              <polyline points="6 9 12 15 18 9" />
+                            </svg>
+                          </button>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1403,7 +1420,17 @@ export default function Dashboard() {
                                   <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Profile</th>
                                   <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Submitted By</th>
                                   <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Captured By</th>
-                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Submitted</th>
+                                  <th className="text-left px-4 py-3 text-xs tracking-wide">
+                                    <button
+                                      onClick={() => setProposalsSortAsc(v => !v)}
+                                      className="flex items-center gap-1 uppercase font-medium text-gray-500 hover:text-gray-800 transition-colors"
+                                    >
+                                      Submitted
+                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`w-3 h-3 transition-transform ${proposalsSortAsc ? "rotate-180" : ""}`}>
+                                        <polyline points="6 9 12 15 18 9" />
+                                      </svg>
+                                    </button>
+                                  </th>
                                 </tr>
                               </thead>
                               <tbody>
