@@ -712,19 +712,19 @@ export default function Dashboard() {
     );
   }
 
-  if (accounts.length === 0) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center flex-col gap-4 px-6 text-center">
-        <div className="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center text-teal-500 border border-teal-100">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7"><path d="M3 3v18h18" /><path d="M7 15l4-8 4 6 4-10" /></svg>
-        </div>
-        <h1 className="text-xl font-semibold text-gray-900">No data yet</h1>
-        <p className="text-gray-500 max-w-md text-sm leading-relaxed">
-          Install the Chrome extension, visit your Upwork My Stats page, and your proposal metrics will appear here automatically.
-        </p>
-      </div>
-    );
-  }
+  // if (accounts.length === 0) {
+  //   return (
+  //     <div className="min-h-screen bg-gray-50 flex items-center justify-center flex-col gap-4 px-6 text-center">
+  //       <div className="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center text-teal-500 border border-teal-100">
+  //         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7"><path d="M3 3v18h18" /><path d="M7 15l4-8 4 6 4-10" /></svg>
+  //       </div>
+  //       <h1 className="text-xl font-semibold text-gray-900">No data yet</h1>
+  //       <p className="text-gray-500 max-w-md text-sm leading-relaxed">
+  //         Install the Chrome extension, visit your Upwork My Stats page, and your proposal metrics will appear here automatically.
+  //       </p>
+  //     </div>
+  //   );
+  // }
 
   const lastSync = accounts
     .filter((a) => a.latestSnapshot)
