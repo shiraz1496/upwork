@@ -187,7 +187,7 @@ export function CoveragePagesView() {
                   </a>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  <span className="text-xs text-gray-400">{page._count.visits} visit{page._count.visits !== 1 ? "s" : ""}</span>
+                  {/* <span className="text-xs text-gray-400">{page._count.visits} visit{page._count.visits !== 1 ? "s" : ""}</span> */}
                   {editingCooldown === page.id ? (
                     <div className="flex items-center gap-1.5">
                       <input

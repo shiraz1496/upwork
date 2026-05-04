@@ -977,11 +977,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 flex overflow-x-hidden">
-
-
-
-
+    <div className="h-screen bg-gray-50 text-gray-900 flex overflow-x-hidden">
         {/* ── Sidebar ─────────────────────────────────────────────────────── */}
         <aside className={`fixed lg:sticky top-0 left-0 h-screen w-64 lg:w-60 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 ${selectedJob || selectedProposal ? "z-20" : "z-50"} overflow-x-hidden`}>
         <div className="h-14 px-5 flex items-center border-b border-gray-200">

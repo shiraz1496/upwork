@@ -76,7 +76,6 @@ export function TeamStatsView() {
             <span className="ml-2 text-gray-400 font-normal">({members.length})</span>
           )}
         </h2>
-        <p className="text-sm text-gray-500 mt-0.5">Per-member captures and coverage.</p>
       </div>
 
       {error && (
@@ -123,7 +122,7 @@ export function TeamStatsView() {
 
               <div className="mb-4">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium text-gray-500 uppercase tracking-wider">Coverage</span>
+                  <span className="font-medium text-gray-500 uppercase tracking-wider" title="Required pages visited within their cooldown window">Pages covered</span>
                   <span className="text-gray-600">
                     {m.coverage.captured} / {m.coverage.referenced}
                   </span>
