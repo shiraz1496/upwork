@@ -6,8 +6,24 @@ export async function GET() {
     await requireAdmin();
 
     const members = await prisma.teamMember.findMany({
-      orderBy: [{ status: "asc" }, { role: "asc" }, { createdAt: "asc" }],
+      where: { role: "bidder" },
+      orderBy: [{ status: "asc" }, { createdAt: "asc" }],
     });
+
+    const requiredPages = await prisma.requiredPage.findMany({
+      select: { id: true, cooldownHours: true },
+    });
+    const totalPages = requiredPages.length;
+    const pageCooldownMap = new Map(
+      requiredPages.map((p) => [p.id, p.cooldownHours * 3600 * 1000]),
+    );
+    const maxCooldownMs = requiredPages.reduce(
+      (m, p) => Math.max(m, p.cooldownHours * 3600 * 1000),
+      3600 * 1000,
+    );
+
+    const now = Date.now();
+    const maxCooldownAgo = new Date(now - maxCooldownMs);
 
     const stats = await Promise.all(
       members.map(async (m) => {
@@ -16,16 +32,17 @@ export async function GET() {
           jobsCount,
           alertsCount,
           snapshotsCount,
-          coverageReferenced,
-          coverageCaptured,
+          recentVisits,
           latestCapture,
         ] = await Promise.all([
           prisma.proposal.count({ where: { capturedByUserId: m.id } }),
           prisma.job.count({ where: { capturedByUserId: m.id } }),
           prisma.alert.count({ where: { capturedByUserId: m.id } }),
           prisma.snapshot.count({ where: { capturedByUserId: m.id } }),
-          prisma.coverageItem.count({ where: { memberId: m.id } }),
-          prisma.coverageItem.count({ where: { memberId: m.id, capturedAt: { not: null } } }),
+          prisma.pageVisit.findMany({
+            where: { memberId: m.id, visitedAt: { gte: maxCooldownAgo } },
+            select: { pageId: true, visitedAt: true },
+          }),
           Promise.all([
             prisma.proposal.findFirst({ where: { capturedByUserId: m.id }, orderBy: { capturedAt: "desc" }, select: { capturedAt: true } }),
             prisma.job.findFirst({ where: { capturedByUserId: m.id }, orderBy: { capturedAt: "desc" }, select: { capturedAt: true } }),
@@ -38,8 +55,16 @@ export async function GET() {
           }),
         ]);
 
-        const coveragePct =
-          coverageReferenced === 0 ? 100 : Math.round((coverageCaptured / coverageReferenced) * 100);
+        // Count distinct required pages this member visited within each page's own cooldown window
+        const coveredPageIds = new Set<string>();
+        for (const v of recentVisits) {
+          const cooldownMs = pageCooldownMap.get(v.pageId);
+          if (cooldownMs !== undefined && now - v.visitedAt.getTime() <= cooldownMs) {
+            coveredPageIds.add(v.pageId);
+          }
+        }
+        const coverageCaptured = coveredPageIds.size;
+        const coveragePct = totalPages === 0 ? 100 : Math.round((coverageCaptured / totalPages) * 100);
 
         return {
           id: m.id,
@@ -54,7 +79,7 @@ export async function GET() {
             snapshots: snapshotsCount,
           },
           coverage: {
-            referenced: coverageReferenced,
+            referenced: totalPages,
             captured: coverageCaptured,
             pct: coveragePct,
           },
