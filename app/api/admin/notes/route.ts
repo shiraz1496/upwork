@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin, adminErrorResponse } from "@/lib/admin-auth";
-import { logAudit } from "@/lib/audit";
 
 const Body = z.object({
   recipientId: z.string().min(1),
@@ -25,14 +24,6 @@ export async function POST(req: NextRequest) {
         proposalId: proposalId || null,
         body,
       },
-    });
-
-    await logAudit({
-      event: "note.created",
-      actorId: admin.id,
-      subjectType: "CoachingNote",
-      subjectId: note.id,
-      meta: { recipientId, proposalId: proposalId || null, length: body.length },
     });
 
     return Response.json({ note });

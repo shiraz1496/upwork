@@ -3,15 +3,12 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { TeamView } from "@/components/admin/TeamView";
 import { TeamStatsView } from "@/components/admin/TeamStatsView";
-import { AuditView } from "@/components/admin/AuditView";
-import { ProfileActivityView } from "@/components/admin/ProfileActivityView";
 import { CoveragePagesView } from "@/components/admin/CoveragePagesView";
 import { CoverageLeaderboardView } from "@/components/admin/CoverageLeaderboardView";
 import { OverviewPanel } from "@/components/OverviewPanel";
 import type {
   AccountData,
   SnapshotSummary,
-  JobData,
   ProposalData,
   AlertData,
   OverviewRange,
@@ -75,7 +72,6 @@ const iconProps = {
   className: "w-[18px] h-[18px] shrink-0",
 };
 const IconHome = () => (<svg {...iconProps}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>);
-const IconBriefcase = () => (<svg {...iconProps}><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></svg>);
 const IconFile = () => (<svg {...iconProps}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>);
 const IconBell = () => (<svg {...iconProps}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>);
 const IconCamera = () => (<svg {...iconProps}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>);
@@ -86,7 +82,6 @@ const IconArrowUp = () => (<svg {...iconProps} className="w-3 h-3 shrink-0"><pol
 const IconArrowDown = () => (<svg {...iconProps} className="w-3 h-3 shrink-0"><polyline points="6 9 12 15 18 9" /></svg>);
 const IconUsers = () => (<svg {...iconProps}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>);
 const IconChart = () => (<svg {...iconProps}><line x1="12" y1="20" x2="12" y2="10" /><line x1="18" y1="20" x2="18" y2="4" /><line x1="6" y1="20" x2="6" y2="16" /></svg>);
-const IconShield = () => (<svg {...iconProps}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>);
 const IconSignOut = () => (<svg {...iconProps}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>);
 const IconCompass = () => (<svg {...iconProps}><circle cx="12" cy="12" r="10" /><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" /></svg>);
 const IconTrophy = () => (<svg {...iconProps}><polyline points="14 9 9 9 9 2 15 2 15 9 10 9" /><path d="M5 9H3a2 2 0 0 0-2 2v1a6 6 0 0 0 6 6h6a6 6 0 0 0 6-6v-1a2 2 0 0 0-2-2h-2" /><line x1="12" y1="18" x2="12" y2="22" /><line x1="8" y1="22" x2="16" y2="22" /></svg>);
@@ -147,129 +142,6 @@ function DrawerField({ label, value }: { label: string; value: React.ReactNode }
     </div>
   );
 }
-
-const JobDrawer = React.memo(function JobDrawer({ job, onClose }: { job: JobData; onClose: () => void }) {
-  return (
-    <>
-      {/* Overlay */}
-      <div
-        className="fixed inset-0 bg-black/10 z-40"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      {/* Panel */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={job.title}
-        className="fixed right-0 top-0 h-full w-full max-w-lg bg-white z-50 shadow-2xl overflow-y-auto flex flex-col will-change-transform"
-      >
-        {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-start justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <h2 className="text-base font-semibold text-gray-900 leading-snug">{job.title}</h2>
-            {job.category && <p className="text-xs text-gray-500 mt-0.5">{job.category}</p>}
-          </div>
-          <button
-            onClick={onClose}
-            className="flex-shrink-0 p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
-            aria-label="Close"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="px-6 py-6 flex flex-col gap-6">
-          {/* Quick badges */}
-          <div className="flex flex-wrap gap-2">
-            {job.jobType && <Badge text={job.jobType} variant="blue" />}
-            {job.experienceLevel && <Badge text={job.experienceLevel} variant="purple" />}
-            {job.budget && <Badge text={job.budget} variant="amber" />}
-            {job.connectsRequired != null && <Badge text={`${job.connectsRequired} connects`} variant="gray" />}
-          </div>
-
-          {/* Job Details */}
-          <section>
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Job Details</h3>
-            <dl className="grid grid-cols-2 gap-3">
-              <DrawerField label="Budget" value={job.budget} />
-              <DrawerField label="Type" value={job.jobType} />
-              <DrawerField label="Experience Level" value={job.experienceLevel} />
-              <DrawerField label="Location" value={job.jobLocation} />
-              <DrawerField label="Connects Required" value={job.connectsRequired} />
-              <DrawerField label="Viewed At" value={fmtDateTime(job.viewedAt)} />
-            </dl>
-          </section>
-
-          {/* Skills */}
-          {job.skills && job.skills.length > 0 && (
-            <section>
-              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Skills Required</h3>
-              <div className="flex flex-wrap gap-1.5">
-                {job.skills.map((s, i) => (
-                  <span key={i} className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-md border border-gray-200">
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Client Info */}
-          <section>
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Client Information</h3>
-            <dl className="grid grid-cols-2 gap-3">
-                <div className="col-span-2">
-                  <dt className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Rating</dt>
-                  <dd className="flex items-center gap-2 text-sm">
-                    {job.clientRating != null && <StarRating rating={job.clientRating} />}
-                    <span className="font-medium text-gray-800">{job.clientRating ?? "No rating"}</span>
-                    {job.clientReviews != null && <span className="text-gray-400">({job.clientReviews} reviews)</span>}
-                  </dd>
-                </div>
-              <DrawerField
-                label="Verified"
-                value={
-                  <div className="flex gap-2">
-                    {job.clientPaymentVerified && <Badge text="Payment" variant="green" />}
-                    {job.clientPhoneVerified && <Badge text="Phone" variant="green" />}
-                    {!job.clientPaymentVerified && !job.clientPhoneVerified && <span className="text-gray-400">—</span>}
-                  </div>
-                }
-              />
-              <DrawerField label="Location" value={[job.clientCity, job.clientCountry].filter(Boolean).join(", ") || null} />
-              <DrawerField label="Total Spent" value={job.clientSpent} />
-              <DrawerField label="Total Hires" value={job.clientHires} />
-              <DrawerField label="Active Hires" value={job.clientActiveHires} />
-              <DrawerField label="Jobs Posted" value={job.clientJobsPosted} />
-              <DrawerField label="Open Jobs" value={job.clientOpenJobs} />
-              <DrawerField label="Hire Rate" value={job.clientHireRate != null ? `${job.clientHireRate}%` : null} />
-              <DrawerField label="Industry" value={job.clientIndustry} />
-              <DrawerField label="Company Size" value={job.clientCompanySize} />
-              <DrawerField label="Member Since" value={job.clientMemberSince} />
-            </dl>
-          </section>
-
-          {/* Link */}
-          <a
-            href={job.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm text-teal-600 hover:text-teal-700 font-medium"
-          >
-            Open Job on Upwork
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
-            </svg>
-          </a>
-        </div>
-      </div>
-    </>
-  );
-});
 
 // ─── Proposal Drawer ──────────────────────────────────────────────────────────
 
@@ -531,7 +403,6 @@ const ProposalDrawer = React.memo(function ProposalDrawer({ proposal, onClose }:
 
 type Tab =
   | "overview"
-  | "jobs"
   | "proposals"
   | "submissions"
   | "alerts"
@@ -540,9 +411,7 @@ type Tab =
   | "team"
   | "team-stats"
   | "coverage-pages"
-  | "leaderboard"
-  | "profile-activity"
-  | "audit";
+  | "leaderboard";
 
 // Tooltip style constants were moved to OverviewPanel
 
@@ -568,7 +437,6 @@ export default function Dashboard() {
   }, [accounts, selectedAccountId]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
-  const [selectedJob, setSelectedJob] = useState<JobData | null>(null);
   const [selectedProposal, setSelectedProposal] = useState<ProposalData | null>(null);
   const [proposalFilter, setProposalFilter] = useState<string>("all");
   const [viewedFilter, setViewedFilter] = useState<"all" | "viewed" | "not_viewed">("all");
@@ -590,7 +458,7 @@ export default function Dashboard() {
 
   // Lock body scroll when drawer is open
   useEffect(() => {
-    if (selectedJob || selectedProposal) {
+    if (selectedProposal) {
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
@@ -598,7 +466,7 @@ export default function Dashboard() {
     return () => {
       document.body.style.overflow = "";
     };
-  }, [selectedJob, selectedProposal]);
+  }, [selectedProposal]);
 
   useEffect(() => {
     setLoading(true);
@@ -649,8 +517,7 @@ export default function Dashboard() {
   const accountsForMember = useMemo(() => {
     if (memberFilter === "all") return accounts;
     return accounts.filter((a) =>
-      a.proposals.some((p) => p.capturedBy?.id === memberFilter) ||
-      a.jobs.some((j) => j.capturedBy?.id === memberFilter)
+      a.proposals.some((p) => p.capturedBy?.id === memberFilter)
     );
   }, [accounts, memberFilter]);
 
@@ -680,18 +547,7 @@ export default function Dashboard() {
     [overviewAccounts],
   );
 
-  const [jobsSortAsc, setJobsSortAsc] = useState(false);
   const [proposalsSortAsc, setProposalsSortAsc] = useState(false);
-
-  const allJobs = useMemo(() => {
-    const accs = selected ? [selected] : accounts;
-    const rows = accs.flatMap((a) => a.jobs || []);
-    const filtered = memberFilter === "all" ? rows : rows.filter((j) => j.capturedBy?.id === memberFilter);
-    return [...filtered].sort((a, b) => {
-      const diff = new Date(b.viewedAt).getTime() - new Date(a.viewedAt).getTime();
-      return jobsSortAsc ? -diff : diff;
-    });
-  }, [accounts, selected, memberFilter, jobsSortAsc]);
 
   const allProposals = useMemo(() => {
     const accs = selected ? [selected] : accounts;
@@ -817,7 +673,6 @@ export default function Dashboard() {
   }, []);
 
   const closeDrawer = useCallback(() => {
-    setSelectedJob(null);
     setSelectedProposal(null);
   }, []);
 
@@ -879,7 +734,6 @@ export default function Dashboard() {
     { id: "overview", label: "Overview", icon: <IconHome /> },
     { id: "proposals", label: "Proposals", count: sortedProposalSections.reduce((s, [, p]) => s + p.length, 0), icon: <IconFile /> },
     { id: "alerts", label: "Alerts", count: unreadAlerts.length, icon: <IconBell /> },
-    { id: "jobs", label: "Jobs", count: allJobs.length, icon: <IconBriefcase /> },
     { id: "submissions", label: "Submissions", count: submissions.length, icon: <IconSend /> },
     { id: "archive", label: "Archive", count: archivedSections.reduce((s, [, p]) => s + p.length, 0), icon: <IconArchive /> },
     // { id: "snapshots", label: "Snapshots", count: filteredSnapshots.length, icon: <IconCamera /> },
@@ -902,8 +756,6 @@ export default function Dashboard() {
     { id: "team-stats", label: "Team Stats", icon: <IconChart /> },
     { id: "leaderboard", label: "Leaderboard", icon: <IconTrophy /> },
     { id: "coverage-pages", label: "Coverage Pages", icon: <IconCompass /> },
-    { id: "profile-activity", label: "Profile Activity", icon: <IconCamera /> },
-    { id: "audit", label: "Audit Log", icon: <IconShield /> },
   ];
 
   const activeTabLabel =
@@ -979,7 +831,7 @@ export default function Dashboard() {
   return (
     <div className="h-screen bg-gray-50 text-gray-900 flex overflow-x-hidden">
         {/* ── Sidebar ─────────────────────────────────────────────────────── */}
-        <aside className={`fixed lg:sticky top-0 left-0 h-screen w-64 lg:w-60 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 ${selectedJob || selectedProposal ? "z-20" : "z-50"} overflow-x-hidden`}>
+        <aside className={`fixed lg:sticky top-0 left-0 h-screen w-64 lg:w-60 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 ${selectedProposal ? "z-20" : "z-50"} overflow-x-hidden`}>
         <div className="h-14 px-5 flex items-center border-b border-gray-200">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-teal-500 text-white flex items-center justify-center text-xs font-bold">UT</div>
@@ -1158,123 +1010,6 @@ export default function Dashboard() {
               </>
             );
           })()}
-
-          {/* ── Jobs Tab ─────────────────────────────────────────────────────── */}
-          {activeTab === "jobs" && (
-            <div className="py-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
-                  Jobs Viewed
-                  <span className="ml-2 text-gray-400 font-normal normal-case tracking-normal">({allJobs.length})</span>
-                </h2>
-              </div>
-
-              {allJobs.length === 0 ? (
-                <div className="border border-dashed border-gray-200 rounded-xl py-20 px-6 text-center">
-                  <div className="mx-auto w-12 h-12 rounded-full bg-amber-50 text-amber-500 border border-amber-100 flex items-center justify-center mb-4">
-                    <IconBriefcase />
-                  </div>
-                  <h3 className="text-sm font-semibold text-gray-700">No jobs tracked yet</h3>
-                  <p className="text-xs text-gray-400 mt-1 max-w-md mx-auto">
-                    Jobs appear here automatically when bidders browse Upwork job listings with the extension active.
-                  </p>
-                </div>
-              ) : (
-                <div className="border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-200 bg-gray-50">
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Job Title</th>
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Type / Budget</th>
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Level</th>
-                        <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Connects</th>
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Client</th>
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Skills</th>
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Captured By</th>
-                        <th className="text-left px-4 py-3 text-xs uppercase tracking-wide">
-                          <button
-                            onClick={() => setJobsSortAsc(v => !v)}
-                            className="flex items-center gap-1 font-medium text-gray-500 hover:text-gray-800 transition-colors uppercase"
-                          >
-                            Viewed
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`w-3 h-3 transition-transform ${jobsSortAsc ? "rotate-180" : ""}`}>
-                              <polyline points="6 9 12 15 18 9" />
-                            </svg>
-                          </button>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {allJobs.map((j) => (
-                        <tr
-                          key={j.id}
-                          onClick={() => setSelectedJob(j)}
-                          className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
-                        >
-                          <td className="px-4 py-3 max-w-xs">
-                            <span className="text-teal-600 font-medium truncate block">{j.title}</span>
-                            {j.category && <span className="text-xs text-gray-400">{j.category}</span>}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-col gap-0.5">
-                              <span className="text-gray-600 capitalize text-xs">{j.jobType || "—"}</span>
-                              {j.budget && <span className="text-amber-600 font-medium text-xs">{j.budget}</span>}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-gray-600 capitalize text-xs">{j.experienceLevel || "—"}</td>
-                          <td className="px-4 py-3 text-right">
-                            {j.connectsRequired != null
-                              ? <span className="text-orange-500 font-medium text-xs">{j.connectsRequired}</span>
-                              : <span className="text-gray-300">—</span>
-                            }
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-col gap-0.5 text-xs max-w-[220px]">
-                              {j.clientRating != null && (
-                                <div className="flex items-center gap-1">
-                                  <StarRating rating={j.clientRating} />
-                                  <span className="text-gray-700 font-medium">{j.clientRating}</span>
-                                </div>
-                              )}
-                              <div className="flex items-center gap-1 flex-wrap">
-                                {j.clientPaymentVerified && (
-                                  <span className="px-1 py-0.5 bg-green-50 text-green-600 border border-green-100 rounded text-[10px]">Pay</span>
-                                )}
-                                {j.clientPhoneVerified && (
-                                  <span className="px-1 py-0.5 bg-green-50 text-green-600 border border-green-100 rounded text-[10px]">Phone</span>
-                                )}
-                              </div>
-                              {(j.clientCountry || j.clientCity) && (
-                                <span className="text-gray-500">{[j.clientCity, j.clientCountry].filter(Boolean).join(", ")}</span>
-                              )}
-                              {j.clientSpent && <span className="text-green-600 font-medium">{j.clientSpent} spent</span>}
-                              {j.clientHireRate != null && (
-                                <span className="text-teal-600">{j.clientHireRate}% hire rate</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-wrap gap-1 max-w-[200px]">
-                              {(j.skills || []).slice(0, 3).map((s, i) => (
-                                <span key={i} className="px-1.5 py-0.5 text-[10px] bg-gray-100 text-gray-600 border border-gray-200 rounded">
-                                  {s}
-                                </span>
-                              ))}
-                              {(j.skills || []).length > 3 && (
-                                <span className="text-[10px] text-gray-400">+{j.skills.length - 3}</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-gray-500 text-xs">{j.capturedBy?.name || <span className="italic text-gray-400">Not tracked</span>}</td>
-                          <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">{fmtDateTime(j.viewedAt)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* ── Proposals Tab ────────────────────────────────────────────────── */}
           {activeTab === "proposals" && (
@@ -1914,30 +1649,14 @@ export default function Dashboard() {
           {/* ── Leaderboard Tab ──────────────────────────────────────────────── */}
           {activeTab === "leaderboard" && <CoverageLeaderboardView />}
 
-          {/* ── Profile Activity Tab ─────────────────────────────────────────── */}
-          {activeTab === "profile-activity" && (
-            <ProfileActivityView
-              accountId={(selected ?? accounts[0])?.id ?? ""}
-              accountName={(selected ?? accounts[0])?.name ?? ""}
-            />
-          )}
-
-          {/* ── Audit Tab ────────────────────────────────────────────────────── */}
-          {activeTab === "audit" && <AuditView />}
-
           {/* ── Footer ───────────────────────────────────────────────────────── */}
           <div className="text-center text-xs text-gray-400 border-t border-gray-100 mt-4 py-4">
             Upwork Tracker — {accounts.length} account{accounts.length !== 1 ? "s" : ""} — {filteredSnapshots.length} snapshots
-            {(() => {
-              const j = accounts.reduce((s, a) => s + (a.jobCount || 0), 0);
-              return j > 0 ? ` — ${j} jobs tracked` : "";
-            })()}
           </div>
         </div>
       </main>
 
     {/* ── Drawers ──────────────────────────────────────────────────────── */}
-    {selectedJob && <JobDrawer job={selectedJob} onClose={closeDrawer} />}
     {selectedProposal && <ProposalDrawer proposal={selectedProposal} onClose={closeDrawer} />}
 
     {/* ── Mobile Sidebar Overlay ────────────────────────────────────────── */}

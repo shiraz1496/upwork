@@ -24,36 +24,6 @@ export interface SnapshotSummary {
   capturedBy: { id: string; name: string } | null;
 }
 
-export interface JobData {
-  id: string;
-  url: string;
-  title: string;
-  budget: string | null;
-  jobType: string | null;
-  category: string | null;
-  skills: string[];
-  experienceLevel: string | null;
-  clientPaymentVerified: boolean;
-  clientPhoneVerified: boolean;
-  clientRating: number | null;
-  clientReviewScore: string | null;
-  clientReviews: number | null;
-  clientSpent: string | null;
-  clientCountry: string | null;
-  clientCity: string | null;
-  clientHires: number | null;
-  clientActiveHires: number | null;
-  clientHireRate: number | null;
-  clientOpenJobs: number | null;
-  clientJobsPosted: number | null;
-  clientMemberSince: string | null;
-  clientIndustry: string | null;
-  clientCompanySize: string | null;
-  jobLocation: string | null;
-  connectsRequired: number | null;
-  viewedAt: string;
-  capturedBy: { id: string; name: string } | null;
-}
 
 export interface ProposalData {
   id: string;
@@ -151,8 +121,6 @@ export interface AccountData {
   } | null;
   snapshots: SnapshotSummary[];
   snapshotCount: number;
-  jobs: JobData[];
-  jobCount: number;
   proposals: ProposalData[];
   proposalCount: number;
   alertCounts?: { messages: number; invites: number; offers: number };

@@ -35,11 +35,9 @@ model TeamMember {
   coverageItems     CoverageItem[]
   notesAuthored     CoachingNote[]   @relation("NoteAuthor")
   notesReceived     CoachingNote[]   @relation("NoteRecipient")
-  auditEvents       AuditLog[]       @relation("AuditActor")
   capturedSnapshots   Snapshot[]
   capturedProposals   Proposal[] @relation("ProposalCapturedBy")
   submittedProposals  Proposal[] @relation("ProposalSubmittedBy")
-  capturedJobs        Job[]
   capturedAlerts    Alert[]
   pageVisits        PageVisit[]
   visitLogs         VisitLog[]
@@ -92,19 +90,6 @@ model CoachingNote {
   @@index([proposalId])
 }
 
-model AuditLog {
-  id          String      @id @default(cuid())
-  event       String
-  actorId     String?
-  actor       TeamMember? @relation("AuditActor", fields: [actorId], references: [id])
-  subjectType String?
-  subjectId   String?
-  meta        Json?
-  createdAt   DateTime    @default(now())
-
-  @@index([event, createdAt])
-  @@index([actorId, createdAt])
-}
 
 model Account {
   id              String         @id @default(cuid())
@@ -116,7 +101,6 @@ model Account {
   updatedAt       DateTime       @updatedAt
   snapshots       Snapshot[]
   proposals       Proposal[]
-  jobs            Job[]
   alerts          Alert[]
   coverageItems   CoverageItem[]
   pageVisits      PageVisit[]
@@ -185,50 +169,6 @@ model Snapshot {
   @@index([capturedByUserId])
 }
 
-model Job {
-  id                    String   @id @default(cuid())
-  accountId             String
-  account               Account  @relation(fields: [accountId], references: [id])
-  url                   String?
-  title                 String
-  description           String?  @db.Text
-  budget                String?
-  jobType               String?
-  category              String?
-  skills                String[]
-  experienceLevel       String?
-  projectType           String?
-  contractToHire        Boolean  @default(false)
-  clientPaymentVerified Boolean  @default(false)
-  clientPhoneVerified   Boolean  @default(false)
-  clientRating          Float?
-  clientReviewScore     String?
-  clientReviews         Int?
-  clientSpent           String?
-  clientCountry         String?
-  clientCity            String?
-  clientHires           Int?
-  clientActiveHires     Int?
-  clientHireRate        Int?
-  clientOpenJobs        Int?
-  clientJobsPosted      Int?
-  clientMemberSince     String?
-  clientIndustry        String?
-  clientCompanySize     String?
-  jobLocation           String?
-  connectsRequired      Int?
-  postedTime            String?
-  viewedAt              DateTime @default(now())
-  createdAt             DateTime @default(now())
-
-  capturedByUserId String?
-  capturedByUser   TeamMember? @relation(fields: [capturedByUserId], references: [id])
-  capturedAt       DateTime?
-
-  @@unique([accountId, url])
-  @@index([accountId])
-  @@index([capturedByUserId])
-}
 
 model Proposal {
   id                    String    @id @default(cuid())

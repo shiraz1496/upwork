@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveMeSession, authErrorResponse } from "@/lib/me-auth";
-import { logAudit } from "@/lib/audit";
 
 export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/me/notes/[id]">) {
   try {
@@ -18,13 +17,6 @@ export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/me/notes/[
     await prisma.coachingNote.update({
       where: { id },
       data: { readAt: new Date() },
-    });
-
-    await logAudit({
-      event: "note.read",
-      actorId: member.id,
-      subjectType: "CoachingNote",
-      subjectId: id,
     });
 
     return Response.json({ ok: true });

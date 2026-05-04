@@ -29,14 +29,12 @@ export async function GET() {
       members.map(async (m) => {
         const [
           proposalsCount,
-          jobsCount,
           alertsCount,
           snapshotsCount,
           recentVisits,
           latestCapture,
         ] = await Promise.all([
           prisma.proposal.count({ where: { capturedByUserId: m.id } }),
-          prisma.job.count({ where: { capturedByUserId: m.id } }),
           prisma.alert.count({ where: { capturedByUserId: m.id } }),
           prisma.snapshot.count({ where: { capturedByUserId: m.id } }),
           prisma.pageVisit.findMany({
@@ -45,7 +43,6 @@ export async function GET() {
           }),
           Promise.all([
             prisma.proposal.findFirst({ where: { capturedByUserId: m.id }, orderBy: { capturedAt: "desc" }, select: { capturedAt: true } }),
-            prisma.job.findFirst({ where: { capturedByUserId: m.id }, orderBy: { capturedAt: "desc" }, select: { capturedAt: true } }),
             prisma.alert.findFirst({ where: { capturedByUserId: m.id }, orderBy: { capturedAt: "desc" }, select: { capturedAt: true } }),
             prisma.snapshot.findFirst({ where: { capturedByUserId: m.id }, orderBy: { capturedAt: "desc" }, select: { capturedAt: true } }),
           ]).then((rows) => {
@@ -74,7 +71,6 @@ export async function GET() {
           status: m.status,
           captured: {
             proposals: proposalsCount,
-            jobs: jobsCount,
             alerts: alertsCount,
             snapshots: snapshotsCount,
           },
