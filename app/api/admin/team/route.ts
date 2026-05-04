@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin, adminErrorResponse } from "@/lib/admin-auth";
-import { logAudit } from "@/lib/audit";
 
 export async function GET() {
   try {
@@ -31,17 +30,10 @@ const CreateBody = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const admin = await requireAdmin();
+    await requireAdmin();
     const body = CreateBody.parse(await req.json());
 
     const member = await prisma.teamMember.create({ data: body });
-    await logAudit({
-      event: "member.created",
-      actorId: admin.id,
-      subjectType: "TeamMember",
-      subjectId: member.id,
-      meta: { role: member.role, email: member.email },
-    });
     return Response.json({ member });
   } catch (err) {
     if (err instanceof z.ZodError) {

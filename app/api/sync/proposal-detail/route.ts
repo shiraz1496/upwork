@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withAttribution, firstCaptureFields, resolveAccount } from "@/lib/attribution";
-import { logAudit } from "@/lib/audit";
 import { markCoverageCaptured } from "@/lib/coverage";
 
 export const POST = withAttribution(async ({ req, member }) => {
@@ -93,12 +92,6 @@ export const POST = withAttribution(async ({ req, member }) => {
       }
       return NextResponse.json({ ok: true, proposalId: proposal.id, updated: true });
     }
-    await logAudit({
-      event: "sync.unmatched_detail",
-      actorId: member.id,
-      subjectType: "Proposal",
-      meta: { url: jobUrl, titleSample: (title || "").slice(0, 80) },
-    });
     const newProposal = await prisma.proposal.create({
       data: {
         accountId: account.id,

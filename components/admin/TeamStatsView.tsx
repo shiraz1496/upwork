@@ -9,7 +9,7 @@ type MemberStats = {
   email: string;
   role: "admin" | "bidder";
   status: "active" | "inactive";
-  captured: { proposals: number; jobs: number; alerts: number; snapshots: number };
+  captured: { proposals: number; alerts: number; snapshots: number };
   coverage: { referenced: number; captured: number; pct: number };
   latestCaptureAt: string | null;
 };
@@ -138,9 +138,8 @@ export function TeamStatsView() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <StatCell label="Props" value={m.captured.proposals} color="text-blue-600" />
-                <StatCell label="Jobs" value={m.captured.jobs} color="text-amber-600" />
                 <StatCell label="Alerts" value={m.captured.alerts} color="text-purple-600" />
                 <StatCell label="Snaps" value={m.captured.snapshots} color="text-teal-600" />
               </div>

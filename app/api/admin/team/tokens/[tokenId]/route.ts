@@ -1,10 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdmin, adminErrorResponse } from "@/lib/admin-auth";
-import { logAudit } from "@/lib/audit";
 
 export async function DELETE(_req: Request, ctx: RouteContext<"/api/admin/team/tokens/[tokenId]">) {
   try {
-    const admin = await requireAdmin();
+    await requireAdmin();
     const { tokenId } = await ctx.params;
 
     const existing = await prisma.extensionToken.findUnique({ where: { id: tokenId } });
@@ -14,14 +13,6 @@ export async function DELETE(_req: Request, ctx: RouteContext<"/api/admin/team/t
     await prisma.extensionToken.update({
       where: { id: tokenId },
       data: { revokedAt: new Date() },
-    });
-
-    await logAudit({
-      event: "token.revoked",
-      actorId: admin.id,
-      subjectType: "ExtensionToken",
-      subjectId: tokenId,
-      meta: { memberId: existing.memberId, label: existing.label },
     });
 
     return Response.json({ ok: true });

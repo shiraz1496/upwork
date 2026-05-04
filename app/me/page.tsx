@@ -191,7 +191,6 @@ export default function MePage() {
         (a) =>
           a.snapshots.length > 0 ||
           a.proposals.length > 0 ||
-          a.jobs.length > 0 ||
           (((a.alertCounts?.messages ?? 0) +
             (a.alertCounts?.invites ?? 0) +
             (a.alertCounts?.offers ?? 0)) > 0),

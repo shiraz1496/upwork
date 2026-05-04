@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withAttribution, firstCaptureFields, resolveAccount } from "@/lib/attribution";
-import { logAudit } from "@/lib/audit";
 import { upsertCoverageReference, markCoverageCaptured } from "@/lib/coverage";
 
 export const POST = withAttribution(async ({ req, member }) => {
@@ -27,12 +26,6 @@ export const POST = withAttribution(async ({ req, member }) => {
       } = alert;
 
       if (!type) {
-        await logAudit({
-          event: "sync.skipped_record",
-          actorId: member.id,
-          subjectType: "Alert",
-          meta: { reason: "no_type", keys: Object.keys(alert || {}) },
-        });
         continue;
       }
 

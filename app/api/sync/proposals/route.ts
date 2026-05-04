@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withAttribution, firstCaptureFields, resolveAccount } from "@/lib/attribution";
-import { logAudit } from "@/lib/audit";
 import { upsertCoverageReference } from "@/lib/coverage";
 
 const ACTIVE_SECTIONS = new Set(["Active", "Interviewing", "Offers"]);
@@ -33,12 +32,6 @@ export const POST = withAttribution(async ({ req, member }) => {
     let saved = 0;
     for (const p of proposals) {
       if (!p.title) {
-        await logAudit({
-          event: "sync.skipped_record",
-          actorId: member.id,
-          subjectType: "Proposal",
-          meta: { reason: "no_title", keys: Object.keys(p || {}) },
-        });
         continue;
       }
       const jobUrl = p.url || null;
