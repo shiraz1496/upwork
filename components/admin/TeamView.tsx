@@ -91,7 +91,7 @@ export function TeamView() {
       body: JSON.stringify({ status: next }),
     });
     if (!res.ok) return alert(`Failed: HTTP ${res.status}`);
-    loadMembers();
+    await loadMembers();
   }
 
   async function issueToken(e: React.FormEvent) {
@@ -348,10 +348,51 @@ function MemberRow({
   member: Member;
   expanded: boolean;
   onToggleExpand: () => void;
-  onToggleStatus: () => void;
+  onToggleStatus: () => Promise<void>;
   onIssueToken: () => void;
   onRevokeToken: (token: Token) => void;
 }) {
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!statusOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node) &&
+        buttonRef.current && !buttonRef.current.contains(e.target as Node)
+      ) {
+        setStatusOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [statusOpen]);
+
+  function openDropdown() {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom + 4, left: rect.left });
+    }
+    setStatusOpen(true);
+  }
+
+  async function handleSelectStatus(s: "active" | "inactive") {
+    setStatusOpen(false);
+    if (s === member.status) return;
+    setStatusLoading(true);
+    try {
+      await onToggleStatus();
+    } finally {
+      setStatusLoading(false);
+    }
+  }
+
+  const isAdmin = member.role === "admin";
+
   return (
     <>
       <tr className="hover:bg-gray-50">
@@ -363,16 +404,58 @@ function MemberRow({
           </span>
         </td>
         <td className="px-5 py-3">
-          <button
-            onClick={onToggleStatus}
-            className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
-              member.status === "active"
-                ? "bg-green-50 text-green-700 border border-green-100 hover:bg-green-100"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
-          >
-            {member.status}
-          </button>
+          {isAdmin ? (
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                member.status === "active"
+                  ? "bg-green-50 text-green-700 border border-green-100"
+                  : "bg-gray-100 text-gray-600"
+              }`}
+            >
+              {member.status}
+            </span>
+          ) : (
+            <div className="inline-block">
+              <button
+                ref={buttonRef}
+                onClick={openDropdown}
+                disabled={statusLoading}
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-60 ${
+                  member.status === "active"
+                    ? "bg-green-50 text-green-700 border border-green-100 hover:bg-green-100"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                {statusLoading && <Spinner className="w-2.5 h-2.5" />}
+                {member.status}
+              </button>
+              {statusOpen && (
+                <div
+                  ref={dropdownRef}
+                  style={{ position: "fixed", top: dropdownPos.top, left: dropdownPos.left, zIndex: 9999 }}
+                  className="bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[110px]"
+                >
+                  {(["active", "inactive"] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => handleSelectStatus(s)}
+                      className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-2 ${
+                        s === member.status ? "font-semibold" : "text-gray-600"
+                      }`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${s === "active" ? "bg-green-500" : "bg-gray-400"}`} />
+                      {s}
+                      {s === member.status && (
+                        <svg className="ml-auto w-3 h-3 text-teal-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </td>
         <td className="px-5 py-3 text-gray-700">{member.tokens.length}</td>
         <td className="px-5 py-3 text-right">
