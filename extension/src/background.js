@@ -149,7 +149,7 @@ async function checkUnrepliedMessages() {
       // Send urgent reminder notification
       chrome.notifications.create(`reminder-${msg.senderName}-${Date.now()}`, {
         type: "basic",
-
+        iconUrl: chrome.runtime.getURL("src/icon128.png"),
         title: "URGENT: Unreplied Message",
         message: `You haven't replied to ${msg.senderName || "a client"}'s message (${ageMinutes} min ago)`,
       });
@@ -565,6 +565,7 @@ async function handleScrapedMessages(payload) {
   for (const msg of brandNew) {
     chrome.notifications.create(`msg-${msg.senderName}-${Date.now()}`, {
       type: "basic",
+      iconUrl: chrome.runtime.getURL("src/icon128.png"),
       title: "New Upwork Message",
       message: `${msg.senderName || "Someone"}: ${msg.preview || "New message"}`,
     });
