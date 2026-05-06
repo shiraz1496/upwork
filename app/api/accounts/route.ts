@@ -5,6 +5,7 @@ export async function GET() {
   try {
     const accounts = await prisma.account.findMany({
       include: {
+        primaryOwner: { select: { id: true, name: true } },
         snapshots: {
           orderBy: { capturedAt: "desc" },
         },
@@ -155,6 +156,8 @@ export async function GET() {
           invites: account.alerts.filter((a) => a.type === "invite").length,
           offers: account.alerts.filter((a) => a.type === "offer").length,
         },
+        primaryOwnerId: account.primaryOwner?.id ?? null,
+        primaryOwnerName: account.primaryOwner?.name ?? null,
       };
     });
 

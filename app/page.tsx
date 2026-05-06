@@ -5,6 +5,7 @@ import { TeamView } from "@/components/admin/TeamView";
 import { TeamStatsView } from "@/components/admin/TeamStatsView";
 import { CoveragePagesView } from "@/components/admin/CoveragePagesView";
 import { CoverageLeaderboardView } from "@/components/admin/CoverageLeaderboardView";
+import { AccountOwnershipView } from "@/components/admin/AccountOwnershipView";
 import { OverviewPanel } from "@/components/OverviewPanel";
 import type {
   AccountData,
@@ -411,7 +412,8 @@ type Tab =
   | "team"
   | "team-stats"
   | "coverage-pages"
-  | "leaderboard";
+  | "leaderboard"
+  | "account-ownership";
 
 // Tooltip style constants were moved to OverviewPanel
 
@@ -513,12 +515,10 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Accounts that have at least one item captured by the selected member
+  // Accounts whose primary owner is the selected bidder.
   const accountsForMember = useMemo(() => {
     if (memberFilter === "all") return accounts;
-    return accounts.filter((a) =>
-      a.proposals.some((p) => p.capturedBy?.id === memberFilter)
-    );
+    return accounts.filter((a) => a.primaryOwnerId === memberFilter);
   }, [accounts, memberFilter]);
 
   // When filtered list changes, select first account if available
@@ -756,6 +756,7 @@ export default function Dashboard() {
     { id: "team-stats", label: "Team Stats", icon: <IconChart /> },
     { id: "leaderboard", label: "Leaderboard", icon: <IconTrophy /> },
     { id: "coverage-pages", label: "Coverage Pages", icon: <IconCompass /> },
+    { id: "account-ownership", label: "Account Ownership", icon: <IconUsers /> },
   ];
 
   const activeTabLabel =
@@ -1648,6 +1649,8 @@ export default function Dashboard() {
           {activeTab === "coverage-pages" && <CoveragePagesView />}
           {/* ── Leaderboard Tab ──────────────────────────────────────────────── */}
           {activeTab === "leaderboard" && <CoverageLeaderboardView />}
+          {/* ── Account Ownership Tab ────────────────────────────────────────── */}
+          {activeTab === "account-ownership" && <AccountOwnershipView />}
 
           {/* ── Footer ───────────────────────────────────────────────────────── */}
           <div className="text-center text-xs text-gray-400 border-t border-gray-100 mt-4 py-4">

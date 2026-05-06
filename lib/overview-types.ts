@@ -124,6 +124,8 @@ export interface AccountData {
   proposals: ProposalData[];
   proposalCount: number;
   alertCounts?: { messages: number; invites: number; offers: number };
+  primaryOwnerId: string | null;
+  primaryOwnerName: string | null;
 }
 
 export type OverviewRange = "7d" | "30d" | "90d";
