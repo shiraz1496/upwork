@@ -17,6 +17,17 @@ import { applyMemberFilter } from "@/lib/overview-aggregation";
 
 // Interfaces are imported from @/lib/overview-types above.
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type AnalysisResult = {
+  summary: { total: number; viewed: number; notViewed: number; viewRate: number };
+  insights: { category: string; finding: string; impact: "high" | "medium" | "low" }[];
+  clientSignals: { greenFlags: string[]; redFlags: string[] };
+  boostAnalysis: { boostedViewRate: number; organicViewRate: number; verdict: "worth_it" | "not_worth_it" | "insufficient_data"; note: string };
+  bidderScores: { name: string; proposals: number; viewed: number; viewRate: number; grade: string }[];
+  recommendations: { priority: number; title: string; action: string }[];
+};
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const COLORS = {
@@ -445,7 +456,10 @@ export default function Dashboard() {
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string; role: string }[]>([]);
   const [memberFilter, setMemberFilter] = useState<string>("all");
   const [coverageAlert, setCoverageAlert] = useState<{ totalPages: number; accounts: { id: string; name: string; pct: number; visited: number; bidders: { id: string; name: string; pct: number; visited: number }[] }[] } | null>(null);
-  const [gptCopied, setGptCopied] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisData, setAnalysisData] = useState<AnalysisResult | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [coverageAlertDismissed, setCoverageAlertDismissed] = useState(false);
   const [coverageAlertExpanded, setCoverageAlertExpanded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -763,69 +777,76 @@ export default function Dashboard() {
     ADMIN_TABS.find((t) => t.id === activeTab)?.label ??
     "Overview";
 
-  function openInChatGPT() {
+  async function runAnalysis() {
     const allProposals = filteredProposalSections.flatMap(([section, props]) =>
       props.map((p) => ({ ...p, viewedByClient: p.viewedByClient || /active|offers?|interviewing/i.test(section) }))
     );
     const viewed = allProposals.filter((p) => p.viewedByClient).length;
     const notViewed = allProposals.length - viewed;
 
+    const schema = `{
+  "summary": { "total": number, "viewed": number, "notViewed": number, "viewRate": number },
+  "insights": [{ "category": string, "finding": string, "impact": "high"|"medium"|"low" }],
+  "clientSignals": { "greenFlags": string[], "redFlags": string[] },
+  "boostAnalysis": { "boostedViewRate": number, "organicViewRate": number, "verdict": "worth_it"|"not_worth_it"|"insufficient_data", "note": string },
+  "bidderScores": [{ "name": string, "proposals": number, "viewed": number, "viewRate": number, "grade": string }],
+  "recommendations": [{ "priority": number, "title": string, "action": string }]
+}`;
+
     const lines = [
-      `You are an Upwork bidding analyst. I am sharing ${allProposals.length} proposals submitted by our team (${viewed} viewed by client, ${notViewed} not viewed).`,
+      `You are an Upwork bidding performance analyst. Analyze the proposal data below and return ONLY a valid JSON object — no markdown, no explanation, no code fences.`,
       ``,
-      `Please analyze this data and give me a detailed breakdown covering:`,
+      `Return exactly this schema:`,
+      schema,
       ``,
-      `1. **View rate patterns** — What do the viewed proposals have in common vs the ones that were not viewed? Look at cover letter quality, length, opening lines, and relevance to the job.`,
-      `2. **Client quality** — Does the client's hire rate, total spent, payment verification, rating, or country correlate with whether they viewed the proposal?`,
-      `3. **Job & proposal fit** — Are certain job categories, experience levels, or budget ranges getting better view rates? Is the proposed rate competitive?`,
-      `4. **Bidder performance** — Compare view rates by who submitted the proposal (the "Submitted by" field — only set for proposals sent via the extension) and who captured/scanned it (the "Captured by" field). Note: these can be different people. Are certain bidders getting more views than others?`,
-      `5. **Timing** — Do proposals submitted on certain dates or within certain timeframes perform better?`,
-      `6. **Boost impact** — Do boosted proposals get viewed more than organic ones? Is boosting worth it based on this data?`,
-      `7. **Actionable recommendations** — Based on all of the above, give 5 specific, concrete changes the team should make to improve the view rate. Be direct and specific.`,
+      `Rules:`,
+      `- insights: 4-6 items, each "finding" is ONE sentence with specific numbers from the data`,
+      `- clientSignals: plain English labels (e.g. "Payment verified", "Hire rate above 40%")`,
+      `- boostAnalysis.note: ONE sentence summary`,
+      `- bidderScores: only bidders with at least 1 proposal, grade A/B/C/D/F based on view rate`,
+      `- recommendations: exactly 5, ordered by impact, each "action" max 2 sentences`,
+      `- All rates/percentages as plain numbers (14.8 not "14.8%")`,
+      `- Return ONLY the JSON object`,
       ``,
-      `Format your response with clear headings for each section. Where possible, include numbers and percentages from the data to back up your conclusions.`,
-      ``,
-      `=== PROPOSALS DATA — ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} ===`,
-      `Total: ${allProposals.length} | Viewed: ${viewed} | Not viewed: ${notViewed}`,
+      `=== DATA: ${allProposals.length} proposals | ${viewed} viewed | ${notViewed} not viewed | ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} ===`,
       ``,
     ];
 
     allProposals.forEach((p, i) => {
-      lines.push(`--- Proposal ${i + 1} ---`);
-      lines.push(`Title: ${p.jobTitle || "Untitled"}`);
-      if (p.section) lines.push(`Section: ${p.section}`);
-      if (p.status) lines.push(`Status: ${p.status}`);
-      lines.push(`Viewed by client: ${p.viewedByClient ? "Yes" : "No"}`);
-      lines.push(`Boost: ${p.boosted ? (p.boostStatus || "Boosted") : "None (organic)"}`);
-      if (p.submittedBy?.name) lines.push(`Submitted by: ${p.submittedBy.name}`);
-      if (p.capturedBy?.name) lines.push(`Captured by: ${p.capturedBy.name}`);
-      if (p.profileUsed) lines.push(`Profile: ${p.profileUsed}`);
-      if (p.proposedRate) lines.push(`Proposed rate: ${p.proposedRate}`);
-      if (p.jobBudget) lines.push(`Job budget: ${p.jobBudget}`);
-      if (p.jobCategory) lines.push(`Category: ${p.jobCategory}`);
-      if (p.jobExperienceLevel) lines.push(`Experience level: ${p.jobExperienceLevel}`);
-      if (p.jobSkills?.length) lines.push(`Skills: ${p.jobSkills.join(", ")}`);
-      if (p.jobDuration) lines.push(`Duration: ${p.jobDuration}`);
-      if (p.jobHoursPerWeek) lines.push(`Hours/week: ${p.jobHoursPerWeek}`);
-      if (p.submittedAt) lines.push(`Submitted: ${new Date(p.submittedAt).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })}`);
-      lines.push(`Client payment verified: ${p.clientPaymentVerified ? "Yes" : "No"}`);
-      if (p.clientCountry) lines.push(`Client country: ${p.clientCountry}`);
-      if (p.clientRating != null) lines.push(`Client rating: ${p.clientRating}`);
-      if (p.clientReviews != null) lines.push(`Client reviews: ${p.clientReviews}`);
-      if (p.clientHireRate != null) lines.push(`Client hire rate: ${p.clientHireRate}%`);
-      if (p.clientTotalSpent) lines.push(`Client total spent: ${p.clientTotalSpent}`);
-      if (p.clientHires != null) lines.push(`Client total hires: ${p.clientHires}`);
-      if (p.clientJobsPosted != null) lines.push(`Client jobs posted: ${p.clientJobsPosted}`);
-      if (p.coverLetter) lines.push(`Cover letter:\n${p.coverLetter}`);
-      if (p.jobDescription) lines.push(`Job description:\n${p.jobDescription}`);
+      lines.push(`[${i + 1}] ${p.jobTitle || "Untitled"} | Viewed:${p.viewedByClient ? "Y" : "N"} | Boost:${p.boosted ? (p.boostStatus || "Boosted") : "organic"}`);
+      if (p.submittedBy?.name || p.capturedBy?.name) lines.push(`  Bidder: ${p.submittedBy?.name || p.capturedBy?.name}`);
+      if (p.jobCategory) lines.push(`  Category: ${p.jobCategory} | Level: ${p.jobExperienceLevel || "?"} | Budget: ${p.jobBudget || "?"}`);
+      if (p.submittedAt) lines.push(`  Submitted: ${new Date(p.submittedAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`);
+      const clientParts = [`Payment:${p.clientPaymentVerified ? "verified" : "unverified"}`];
+      if (p.clientHireRate != null) clientParts.push(`HireRate:${p.clientHireRate}%`);
+      if (p.clientTotalSpent) clientParts.push(`Spent:${p.clientTotalSpent}`);
+      if (p.clientRating != null) clientParts.push(`Rating:${p.clientRating}`);
+      if (p.clientCountry) clientParts.push(`Country:${p.clientCountry}`);
+      lines.push(`  Client: ${clientParts.join(" | ")}`);
+      if (p.coverLetter) lines.push(`  CoverLetter: ${p.coverLetter.slice(0, 300)}${p.coverLetter.length > 300 ? "…" : ""}`);
       lines.push("");
     });
 
-    navigator.clipboard.writeText(lines.join("\n")).then(() => {
-      setGptCopied(true);
-      setTimeout(() => window.open("https://chatgpt.com/", "_blank"), 2500);
-      setTimeout(() => setGptCopied(false), 3500);
-    });
+    setAnalysisOpen(true);
+    setAnalysisLoading(true);
+    setAnalysisData(null);
+    setAnalysisError(null);
+
+    try {
+      const res = await fetch("/api/admin/analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: lines.join("\n") }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      const raw: string = data.text.trim().replace(/^```json\s*/i, "").replace(/```\s*$/, "");
+      setAnalysisData(JSON.parse(raw) as AnalysisResult);
+    } catch (e) {
+      setAnalysisError(e instanceof Error ? e.message : "Failed to run analysis");
+    } finally {
+      setAnalysisLoading(false);
+    }
   }
 
   return (
@@ -1059,18 +1080,19 @@ export default function Dashboard() {
                     ))}
                   </select>
                   <button
-                    onClick={openInChatGPT}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+                    onClick={runAnalysis}
+                    disabled={analysisLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 disabled:opacity-50 transition-colors"
                   >
-                    {gptCopied ? (
+                    {analysisLoading ? (
                       <>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-green-500"><polyline points="20 6 9 17 4 12" /></svg>
-                        Copied — paste in ChatGPT
+                        <span className="w-3 h-3 border-2 border-violet-400/40 border-t-violet-600 rounded-full animate-spin shrink-0" />
+                        Analyzing…
                       </>
                     ) : (
                       <>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                        Open in ChatGPT
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><path d="M12 2L9 9H2l5.5 4-2 7L12 16l6.5 4-2-7L22 9h-7z"/></svg>
+                        Analyze with AI
                       </>
                     )}
                   </button>
@@ -1664,11 +1686,194 @@ export default function Dashboard() {
       <div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
     )}
 
-    {/* ── ChatGPT copy toast ────────────────────────────────────────────── */}
-    {gptCopied && (
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2.5 bg-gray-900 text-white text-sm px-4 py-3 rounded-xl shadow-lg">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-green-400 shrink-0"><polyline points="20 6 9 17 4 12" /></svg>
-        Data copied — paste it in ChatGPT with <kbd className="ml-1 px-1.5 py-0.5 bg-gray-700 rounded text-xs font-mono">⌘V</kbd>
+    {/* ── AI Analysis Modal ─────────────────────────────────────────────── */}
+    {analysisOpen && (
+      <div className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/50" onClick={() => !analysisLoading && setAnalysisOpen(false)}>
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-violet-100 flex items-center justify-center">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-violet-600"><path d="M12 2L9 9H2l5.5 4-2 7L12 16l6.5 4-2-7L22 9h-7z"/></svg>
+              </div>
+              <span className="text-sm font-semibold text-gray-900">AI Analysis</span>
+              {!analysisLoading && analysisData && (
+                <span className="text-xs text-gray-400">Powered by Gemini</span>
+              )}
+            </div>
+            {!analysisLoading && (
+              <button onClick={() => setAnalysisOpen(false)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            )}
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+
+            {/* Loading */}
+            {analysisLoading && (
+              <div className="flex flex-col items-center justify-center py-20 gap-4">
+                <div className="w-8 h-8 border-violet-200 border-t-violet-600 rounded-full animate-spin" style={{ borderWidth: 3, borderStyle: "solid" }} />
+                <p className="text-sm text-gray-500">Analyzing proposals with Gemini…</p>
+              </div>
+            )}
+
+            {/* Error */}
+            {analysisError && (
+              <div className="rounded-lg bg-rose-50 border border-rose-100 px-4 py-3 text-sm text-rose-700">
+                {analysisError}
+              </div>
+            )}
+
+            {analysisData && (() => {
+              const d = analysisData;
+              console.log("analysisData",analysisData);
+              
+              const impactColor = (impact: string) =>
+                impact === "high" ? "bg-rose-100 text-rose-700" :
+                impact === "medium" ? "bg-amber-100 text-amber-700" :
+                "bg-gray-100 text-gray-500";
+              const gradeColor = (g: string) =>
+                g === "A" ? "text-green-600" : g === "B" ? "text-teal-600" : g === "C" ? "text-amber-600" : "text-rose-600";
+              const verdictLabel = (v: string) =>
+                v === "worth_it" ? { label: "Worth it", cls: "bg-green-100 text-green-700" } :
+                v === "not_worth_it" ? { label: "Not worth it", cls: "bg-rose-100 text-rose-700" } :
+                { label: "Insufficient data", cls: "bg-gray-100 text-gray-500" };
+
+              return (<>
+
+                {/* Summary */}
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: "Total proposals", value: d.summary.total, color: "text-gray-900" },
+                    { label: "Viewed by client", value: d.summary.viewed, color: "text-teal-600" },
+                    { label: "View rate", value: `${d.summary.viewRate}%`, color: d.summary.viewRate >= 30 ? "text-green-600" : d.summary.viewRate >= 15 ? "text-amber-600" : "text-rose-600" },
+                  ].map((s) => (
+                    <div key={s.label} className="bg-gray-50 rounded-xl px-4 py-3 text-center">
+                      <div className={`text-2xl font-bold tabular-nums ${s.color}`}>{s.value}</div>
+                      <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Insights */}
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Key Insights</h3>
+                  <div className="space-y-2">
+                    {d.insights.map((ins, i) => (
+                      <div key={i} className="flex items-start gap-3 bg-gray-50 rounded-lg px-3 py-2.5">
+                        <span className={`shrink-0 mt-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wide ${impactColor(ins.impact)}`}>{ins.impact}</span>
+                        <div>
+                          <span className="text-xs font-semibold text-gray-700">{ins.category}: </span>
+                          <span className="text-xs text-gray-600">{ins.finding}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Client signals + Boost side by side */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Client Signals</h3>
+                    <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+                      {d.clientSignals.greenFlags.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-semibold text-green-600 uppercase mb-1">Bid on</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {d.clientSignals.greenFlags.map((f, i) => (
+                              <span key={i} className="text-[11px] bg-green-50 text-green-700 border border-green-100 rounded-full px-2 py-0.5">{f}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {d.clientSignals.redFlags.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-semibold text-rose-500 uppercase mb-1">Avoid</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {d.clientSignals.redFlags.map((f, i) => (
+                              <span key={i} className="text-[11px] bg-rose-50 text-rose-700 border border-rose-100 rounded-full px-2 py-0.5">{f}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Boost Impact</h3>
+                    <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-500">Boosted view rate</span>
+                        <span className="font-semibold text-gray-900">{d.boostAnalysis.boostedViewRate}%</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-500">Organic view rate</span>
+                        <span className="font-semibold text-gray-900">{d.boostAnalysis.organicViewRate}%</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">Verdict</span>
+                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${verdictLabel(d.boostAnalysis.verdict).cls}`}>{verdictLabel(d.boostAnalysis.verdict).label}</span>
+                      </div>
+                      <p className="text-[11px] text-gray-400 pt-1 border-t border-gray-200">{d.boostAnalysis.note}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bidder scores */}
+                {d.bidderScores.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Bidder Performance</h3>
+                    <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
+                      {d.bidderScores.map((b, i) => (
+                        <div key={i} className="flex items-center gap-4 px-4 py-3 bg-white">
+                          <span className={`text-xl font-black w-8 text-center ${gradeColor(b.grade)}`}>{b.grade}</span>
+                          <span className="flex-1 text-sm font-medium text-gray-900">{b.name}</span>
+                          <span className="text-xs text-gray-500">{b.viewed}/{b.proposals} viewed</span>
+                          <span className="text-xs font-semibold text-gray-700 w-12 text-right">{b.viewRate}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recommendations */}
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Recommendations</h3>
+                  <div className="space-y-2">
+                    {d.recommendations.map((r) => (
+                      <div key={r.priority} className="flex gap-3 bg-violet-50 border border-violet-100 rounded-xl px-4 py-3">
+                        <span className="shrink-0 w-5 h-5 rounded-full bg-violet-500 text-white text-[11px] font-bold flex items-center justify-center mt-0.5">{r.priority}</span>
+                        <div>
+                          <div className="text-sm font-semibold text-gray-900">{r.title}</div>
+                          <div className="text-xs text-gray-600 mt-0.5">{r.action}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </>);
+            })()}
+          </div>
+
+          {/* Footer — Save button */}
+          {analysisData && !analysisLoading && (
+            <div className="shrink-0 px-6 py-4 border-t border-gray-100 flex justify-end">
+              <button
+                disabled
+                className="inline-flex items-center gap-2 px-4 py-2 bg-violet-500 opacity-50 cursor-not-allowed text-white text-sm font-medium rounded-lg shadow-sm"
+                title="DB storage coming soon"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                Save analysis
+              </button>
+            </div>
+          )}
+
+        </div>
       </div>
     )}
   </div>
