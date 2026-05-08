@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OverviewPanel } from "@/components/OverviewPanel";
+import { FreelancerProfileCard } from "@/components/FreelancerProfileCard";
 import type { AccountData, OverviewRange, ProposalData } from "@/lib/overview-types";
 
 type CoveragePayload = {
@@ -25,7 +26,7 @@ type NotesPayload = {
   notes: Note[];
 };
 
-type MeTab = "overview" | "coverage" | "notes" | "untracked";
+type MeTab = "overview" | "profile" | "coverage" | "notes" | "untracked";
 
 const iconProps = {
   viewBox: "0 0 24 24",
@@ -51,6 +52,12 @@ const IconCompass = () => (
 const IconMessage = () => (
   <svg {...iconProps}>
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+  </svg>
+);
+const IconUser = () => (
+  <svg {...iconProps}>
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
   </svg>
 );
 const IconSignOut = () => (
@@ -217,6 +224,7 @@ export default function MePage() {
 
   const TABS: { id: MeTab; label: string; icon: React.ReactNode; count: number | null }[] = [
     { id: "overview", label: "Overview", icon: <IconHome />, count: null },
+    { id: "profile", label: "Profile", icon: <IconUser />, count: null },
     {
       id: "coverage",
       label: "Pages to open",
@@ -467,6 +475,21 @@ export default function MePage() {
                 )}
               </>
             ))}
+
+          {activeTab === "profile" && (
+            <div className="py-6">
+              {scopedAccounts.length === 1 ? (
+                <FreelancerProfileCard
+                  profile={scopedAccounts[0].profile}
+                  accountName={scopedAccounts[0].name}
+                />
+              ) : (
+                <div className="rounded-xl border border-dashed border-gray-300 bg-white p-6 text-sm text-gray-500">
+                  Select a single account from the dropdown above to view its freelancer profile.
+                </div>
+              )}
+            </div>
+          )}
 
           {activeTab === "coverage" && (
             <section className="mt-6 bg-white border border-gray-200 rounded-xl p-6">

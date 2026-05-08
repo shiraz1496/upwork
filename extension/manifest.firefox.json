@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Upwork Tracker",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Scrapes and tracks proposal stats, JSS, connects, and job data across all your Upwork accounts.",
   "permissions": ["storage", "notifications", "alarms", "scripting", "webNavigation"],
   "host_permissions": [

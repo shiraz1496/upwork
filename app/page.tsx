@@ -6,6 +6,7 @@ import { TeamStatsView } from "@/components/admin/TeamStatsView";
 import { CoveragePagesView } from "@/components/admin/CoveragePagesView";
 import { CoverageLeaderboardView } from "@/components/admin/CoverageLeaderboardView";
 import { OverviewPanel } from "@/components/OverviewPanel";
+import { FreelancerProfileCard } from "@/components/FreelancerProfileCard";
 import type {
   AccountData,
   SnapshotSummary,
@@ -81,6 +82,7 @@ const IconRefresh = () => (<svg {...iconProps} className="w-4 h-4 shrink-0"><pol
 const IconArrowUp = () => (<svg {...iconProps} className="w-3 h-3 shrink-0"><polyline points="18 15 12 9 6 15" /></svg>);
 const IconArrowDown = () => (<svg {...iconProps} className="w-3 h-3 shrink-0"><polyline points="6 9 12 15 18 9" /></svg>);
 const IconUsers = () => (<svg {...iconProps}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>);
+const IconUser = () => (<svg {...iconProps}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>);
 const IconChart = () => (<svg {...iconProps}><line x1="12" y1="20" x2="12" y2="10" /><line x1="18" y1="20" x2="18" y2="4" /><line x1="6" y1="20" x2="6" y2="16" /></svg>);
 const IconSignOut = () => (<svg {...iconProps}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>);
 const IconCompass = () => (<svg {...iconProps}><circle cx="12" cy="12" r="10" /><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" /></svg>);
@@ -403,6 +405,7 @@ const ProposalDrawer = React.memo(function ProposalDrawer({ proposal, onClose }:
 
 type Tab =
   | "overview"
+  | "profile"
   | "proposals"
   | "submissions"
   | "alerts"
@@ -438,8 +441,11 @@ export default function Dashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [selectedProposal, setSelectedProposal] = useState<ProposalData | null>(null);
+  const [nudgeState, setNudgeState] = useState<Record<string, "loading" | "ok" | "error">>({});
+  const [bulkNudgeState, setBulkNudgeState] = useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [bulkNudgeMessage, setBulkNudgeMessage] = useState<string | null>(null);
   const [proposalFilter, setProposalFilter] = useState<string>("all");
-  const [viewedFilter, setViewedFilter] = useState<"all" | "viewed" | "not_viewed">("all");
+  const [viewedFilter, setViewedFilter] = useState<"all" | "viewed" | "not_viewed" | "unscanned">("all");
   const [overviewRange, setOverviewRange] = useState<OverviewRange>("7d");
   const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string; role: string }[]>([]);
@@ -616,6 +622,7 @@ export default function Dashboard() {
             section,
             props.filter((p) => {
               const isViewed = p.viewedByClient || impliedViewed;
+              if (viewedFilter === "unscanned") return !p.coverLetter;
               return viewedFilter === "viewed" ? isViewed : !isViewed;
             }),
           ] as [string, ProposalData[]];
@@ -732,6 +739,7 @@ export default function Dashboard() {
 
   const TABS: { id: Tab; label: string; count?: number; icon: React.ReactNode }[] = [
     { id: "overview", label: "Overview", icon: <IconHome /> },
+    { id: "profile", label: "Profile", icon: <IconUser /> },
     { id: "proposals", label: "Proposals", count: sortedProposalSections.reduce((s, [, p]) => s + p.length, 0), icon: <IconFile /> },
     { id: "alerts", label: "Alerts", count: unreadAlerts.length, icon: <IconBell /> },
     { id: "submissions", label: "Submissions", count: submissions.length, icon: <IconSend /> },
@@ -769,26 +777,51 @@ export default function Dashboard() {
     );
     const viewed = allProposals.filter((p) => p.viewedByClient).length;
     const notViewed = allProposals.length - viewed;
+    const accountsInScope = selected ? [selected] : accountsForMember;
+    const profiledAccounts = accountsInScope.filter((a) => a.profile);
 
     const lines = [
-      `You are an Upwork bidding analyst. I am sharing ${allProposals.length} proposals submitted by our team (${viewed} viewed by client, ${notViewed} not viewed).`,
+      `You are an Upwork bidding analyst. I am sharing ${allProposals.length} proposals submitted by our team (${viewed} viewed by client, ${notViewed} not viewed)${profiledAccounts.length > 0 ? ` along with the freelancer profile${profiledAccounts.length > 1 ? "s" : ""} they were sent from` : ""}.`,
       ``,
       `Please analyze this data and give me a detailed breakdown covering:`,
       ``,
       `1. **View rate patterns** — What do the viewed proposals have in common vs the ones that were not viewed? Look at cover letter quality, length, opening lines, and relevance to the job.`,
       `2. **Client quality** — Does the client's hire rate, total spent, payment verification, rating, or country correlate with whether they viewed the proposal?`,
-      `3. **Job & proposal fit** — Are certain job categories, experience levels, or budget ranges getting better view rates? Is the proposed rate competitive?`,
-      `4. **Bidder performance** — Compare view rates by who submitted the proposal (the "Submitted by" field — only set for proposals sent via the extension) and who captured/scanned it (the "Captured by" field). Note: these can be different people. Are certain bidders getting more views than others?`,
-      `5. **Timing** — Do proposals submitted on certain dates or within certain timeframes perform better?`,
-      `6. **Boost impact** — Do boosted proposals get viewed more than organic ones? Is boosting worth it based on this data?`,
-      `7. **Actionable recommendations** — Based on all of the above, give 5 specific, concrete changes the team should make to improve the view rate. Be direct and specific.`,
+      `3. **Job & proposal fit** — Are certain job categories, experience levels, or budget ranges getting better view rates? Is the proposed rate competitive against the freelancer's hourly rate and skill set?`,
+      `4. **Profile fit** — Looking at the freelancer's title, overview, and skills, are we going after jobs that match the profile, or spraying broadly? Where does the profile language need to evolve to match the jobs that get viewed?`,
+      `5. **Bidder performance** — Compare view rates by who submitted the proposal (the "Submitted by" field — only set for proposals sent via the extension) and who captured/scanned it (the "Captured by" field). Note: these can be different people. Are certain bidders getting more views than others?`,
+      `6. **Timing** — Do proposals submitted on certain dates or within certain timeframes perform better?`,
+      `7. **Boost impact** — Do boosted proposals get viewed more than organic ones? Is boosting worth it based on this data?`,
+      `8. **Actionable recommendations** — Based on all of the above, give 5 specific, concrete changes the team should make to improve the view rate. Tie at least 2 of them to the freelancer profile (overview, skills, title) so the changes are tailored to who is bidding.`,
       ``,
       `Format your response with clear headings for each section. Where possible, include numbers and percentages from the data to back up your conclusions.`,
       ``,
+    ];
+
+    if (profiledAccounts.length > 0) {
+      lines.push(`=== FREELANCER PROFILE${profiledAccounts.length > 1 ? "S" : ""} ===`, ``);
+      profiledAccounts.forEach((a, i) => {
+        const p = a.profile!;
+        if (profiledAccounts.length > 1) lines.push(`--- Profile ${i + 1} ---`);
+        lines.push(`Name: ${a.name}`);
+        if (p.title) lines.push(`Title: ${p.title}`);
+        if (p.location) lines.push(`Location: ${p.location}`);
+        if (p.hourlyRate) lines.push(`Hourly rate: ${p.hourlyRate}`);
+        if (p.totalEarnings) lines.push(`Total earnings: $${p.totalEarnings.replace(/^\$/, "")}`);
+        if (p.totalJobs != null) lines.push(`Total jobs: ${p.totalJobs}`);
+        if (p.totalHours != null) lines.push(`Total hours: ${p.totalHours}`);
+        if (a.jss != null) lines.push(`Job Success Score: ${a.jss}%`);
+        if (p.skills?.length) lines.push(`Skills: ${p.skills.join(", ")}`);
+        if (p.overview) lines.push(`Overview:\n${p.overview}`);
+        lines.push(``);
+      });
+    }
+
+    lines.push(
       `=== PROPOSALS DATA — ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} ===`,
       `Total: ${allProposals.length} | Viewed: ${viewed} | Not viewed: ${notViewed}`,
       ``,
-    ];
+    );
 
     allProposals.forEach((p, i) => {
       lines.push(`--- Proposal ${i + 1} ---`);
@@ -1011,6 +1044,19 @@ export default function Dashboard() {
             );
           })()}
 
+          {/* ── Profile Tab ──────────────────────────────────────────────────── */}
+          {activeTab === "profile" && (
+            <div className="py-6">
+              {selected ? (
+                <FreelancerProfileCard profile={selected.profile} accountName={selected.name} />
+              ) : (
+                <div className="rounded-xl border border-dashed border-gray-300 bg-white p-6 text-sm text-gray-500">
+                  Select an account from the sidebar to view its freelancer profile.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── Proposals Tab ────────────────────────────────────────────────── */}
           {activeTab === "proposals" && (
             <div className="py-6">
@@ -1039,12 +1085,13 @@ export default function Dashboard() {
                   </div>
                   <select
                     value={viewedFilter}
-                    onChange={(e) => setViewedFilter(e.target.value as "all" | "viewed" | "not_viewed")}
+                    onChange={(e) => setViewedFilter(e.target.value as "all" | "viewed" | "not_viewed" | "unscanned")}
                     className="text-xs border border-gray-200 rounded-md px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
                   >
                     <option value="all">All</option>
                     <option value="viewed">Viewed</option>
                     <option value="not_viewed">Not viewed</option>
+                    <option value="unscanned">Unscanned</option>
                   </select>
                   <select
                     value={proposalFilter}
@@ -1058,6 +1105,65 @@ export default function Dashboard() {
                       </option>
                     ))}
                   </select>
+                  {(() => {
+                    const unscannedIds = filteredProposalSections
+                      .flatMap(([, props]) => props)
+                      .filter((p) => !p.coverLetter && p.capturedBy)
+                      .map((p) => p.id);
+                    if (unscannedIds.length === 0) return null;
+                    return (
+                      <button
+                        onClick={() => {
+                          if (bulkNudgeState === "loading") return;
+                          setBulkNudgeState("loading");
+                          setBulkNudgeMessage(null);
+                          fetch("/api/nudges/bulk", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ proposalIds: unscannedIds }),
+                          })
+                            .then((r) => r.json())
+                            .then((res) => {
+                              if (!res.ok) {
+                                setBulkNudgeState("error");
+                                setBulkNudgeMessage(res.error || "Failed");
+                                return;
+                              }
+                              const bidderCount = Object.keys(res.byBidder || {}).length;
+                              setBulkNudgeState("ok");
+                              setBulkNudgeMessage(
+                                `Nudged ${res.created} proposal${res.created === 1 ? "" : "s"}` +
+                                  (bidderCount > 0 ? ` across ${bidderCount} bidder${bidderCount === 1 ? "" : "s"}` : "") +
+                                  (res.deduped ? ` (${res.deduped} skipped — recently nudged)` : ""),
+                              );
+                              setTimeout(() => setBulkNudgeState("idle"), 4000);
+                            })
+                            .catch(() => {
+                              setBulkNudgeState("error");
+                              setBulkNudgeMessage("Network error");
+                            });
+                        }}
+                        disabled={bulkNudgeState === "loading"}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+                          bulkNudgeState === "ok"
+                            ? "bg-green-50 border-green-200 text-green-700"
+                            : bulkNudgeState === "error"
+                            ? "bg-rose-50 border-rose-200 text-rose-700"
+                            : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
+                        }`}
+                        title={bulkNudgeMessage ?? `Nudge ${unscannedIds.length} unscanned proposal${unscannedIds.length === 1 ? "" : "s"}`}
+                      >
+                        📌 
+                        {bulkNudgeState === "loading"
+                          ? "Nudging…"
+                          : bulkNudgeState === "ok"
+                          ? bulkNudgeMessage || "Nudged ✓"
+                          : bulkNudgeState === "error"
+                          ? bulkNudgeMessage || "Failed"
+                          : ` Nudge all (${unscannedIds.length})`}
+                      </button>
+                    );
+                  })()}
                   <button
                     onClick={openInChatGPT}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
@@ -1256,7 +1362,49 @@ export default function Dashboard() {
                                     </td>
                                     <td className="px-4 py-3 text-gray-400 text-xs">{p.profileUsed || "—"}</td>
                                     <td className="px-4 py-3 text-gray-500 text-xs">{p.submittedBy?.name || <span className="italic text-gray-400">—</span>}</td>
-                                    <td className="px-4 py-3 text-gray-500 text-xs">{p.capturedBy?.name || <span className="italic text-gray-400">—</span>}</td>
+                                    <td className="px-4 py-3 text-gray-500 text-xs">
+                                      <div className="flex items-center gap-2">
+                                        <span>{p.capturedBy?.name || <span className="italic text-gray-400">—</span>}</span>
+                                        {!p.coverLetter && p.capturedBy && (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const id = p.id;
+                                              if (nudgeState[id] === "loading" || nudgeState[id] === "ok") return;
+                                              setNudgeState((s) => ({ ...s, [id]: "loading" }));
+                                              fetch("/api/nudges", {
+                                                method: "POST",
+                                                headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({ proposalId: id }),
+                                              })
+                                                .then((r) => r.json())
+                                                .then((res) => {
+                                                  setNudgeState((s) => ({ ...s, [id]: res.ok ? "ok" : "error" }));
+                                                })
+                                                .catch(() => {
+                                                  setNudgeState((s) => ({ ...s, [id]: "error" }));
+                                                });
+                                            }}
+                                            className={`text-[10px] px-2 py-0.5 rounded border font-medium transition-colors ${
+                                              nudgeState[p.id] === "ok"
+                                                ? "bg-green-50 border-green-200 text-green-700"
+                                                : nudgeState[p.id] === "error"
+                                                ? "bg-rose-50 border-rose-200 text-rose-700"
+                                                : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
+                                            }`}
+                                            disabled={nudgeState[p.id] === "loading" || nudgeState[p.id] === "ok"}
+                                          >
+                                            {nudgeState[p.id] === "loading"
+                                              ? "Nudging…"
+                                              : nudgeState[p.id] === "ok"
+                                              ? "Nudged ✓"
+                                              : nudgeState[p.id] === "error"
+                                              ? "Failed"
+                                              : "Nudge"}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
                                     <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
                                       {p.submittedAt ? fmtDateTime(p.submittedAt) : fmtDateTime(p.createdAt)}
                                     </td>
@@ -1310,10 +1458,6 @@ export default function Dashboard() {
                       <div className="flex items-start justify-between gap-4 mb-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-100">
-                              <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
-                              LIVE
-                            </span>
                             <span className="text-[11px] text-gray-400">
                               {fmtDateTime(p.submittedAt || p.createdAt)}
                             </span>

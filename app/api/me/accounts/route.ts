@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
 
     const accounts = await prisma.account.findMany({
       include: {
+        profile: { include: { capturedByUser: { select: { id: true, name: true } } } },
         snapshots: {
           where: { capturedByUserId: member.id },
           orderBy: { capturedAt: "desc" },
@@ -182,6 +183,24 @@ export async function GET(req: NextRequest) {
           invites: account.alerts.filter((a) => a.type === "invite").length,
           offers: account.alerts.filter((a) => a.type === "offer").length,
         },
+        profile: account.profile
+          ? {
+              title: account.profile.title,
+              photoUrl: account.profile.photoUrl,
+              location: account.profile.location,
+              hourlyRate: account.profile.hourlyRate,
+              totalEarnings: account.profile.totalEarnings,
+              totalJobs: account.profile.totalJobs,
+              totalHours: account.profile.totalHours,
+              overview: account.profile.overview,
+              skills: account.profile.skills,
+              capturedAt: account.profile.capturedAt,
+              updatedAt: account.profile.updatedAt,
+              capturedBy: account.profile.capturedByUser
+                ? { id: account.profile.capturedByUser.id, name: account.profile.capturedByUser.name }
+                : null,
+            }
+          : null,
       };
     });
 

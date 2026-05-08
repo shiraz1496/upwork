@@ -1,6 +1,29 @@
-const DEFAULT_BACKEND_URL = "https://upwork-tracking-tool.vercel.app";
+const DEFAULT_BACKEND_URL = "http://localhost:3000";
 
 console.log("[UT BG] Service worker started v5");
+
+// ── Global crash guards ────────────────────────────────────────────────
+// Without these, a single unhandled error or rejection terminates the
+// service worker and Chrome may refuse to restart it for the session.
+self.addEventListener("error", (ev) => {
+  console.error("[UT BG] uncaught error:", ev?.message, ev?.error);
+  ev.preventDefault?.();
+});
+self.addEventListener("unhandledrejection", (ev) => {
+  console.error("[UT BG] unhandled rejection:", ev?.reason);
+  ev.preventDefault?.();
+});
+
+function safeAsync(fn, name) {
+  return async (...args) => {
+    try {
+      return await fn(...args);
+    } catch (e) {
+      console.error(`[UT BG] ${name || fn.name || "handler"} threw:`, e);
+      return { ok: false, error: e?.message || String(e) };
+    }
+  };
+}
 
 // ── Inject fetch interceptor EARLY ──
 // Chrome supports world:"MAIN". Firefox doesn't — content script handles fallback.
@@ -34,10 +57,15 @@ chrome.webNavigation.onCommitted.addListener(
 chrome.webNavigation.onCompleted.addListener(
   (details) => {
     if (details.frameId !== 0) return;
-    // Record visit first, then check coverage so the visit is already saved
-    checkUrlAgainstRequiredPages(details.url)
-      .catch(() => {})
-      .finally(() => checkCoverageAndNotify(details.tabId).catch(() => {}));
+    schedulePollOnUpworkNav();
+    Promise.resolve()
+      .then(() => checkUrlAgainstRequiredPages(details.url))
+      .catch((e) => console.warn("[UT BG] requiredPages check failed:", e))
+      .finally(() =>
+        checkCoverageAndNotify(details.tabId).catch((e) =>
+          console.warn("[UT BG] coverage check failed:", e),
+        ),
+      );
   },
   { url: [{ hostContains: "upwork.com" }] }
 );
@@ -122,15 +150,73 @@ async function syncToBackend(endpoint, payload) {
 }
 
 // ── Alarms for periodic alert checking ──
-chrome.alarms.create("check-alerts", { periodInMinutes: 2 });
-chrome.alarms.create("reply-reminder", { periodInMinutes: 3 });
-chrome.alarms.create("refresh-required-pages", { periodInMinutes: 30 });
+// Only create alarms that don't already exist — otherwise re-running this
+// file (every SW wake-up) resets the timer and the alarm never fires.
+async function ensureAlarm(name, opts) {
+  const existing = await chrome.alarms.get(name);
+  if (!existing) chrome.alarms.create(name, opts);
+}
+ensureAlarm("check-alerts", { periodInMinutes: 2 });
+ensureAlarm("reply-reminder", { periodInMinutes: 3 });
+ensureAlarm("refresh-required-pages", { periodInMinutes: 30 });
+ensureAlarm("nudge-poll", { periodInMinutes: 1 });
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "check-alerts") checkForAlerts();
   if (alarm.name === "reply-reminder") checkUnrepliedMessages();
   if (alarm.name === "refresh-required-pages") fetchRequiredPages();
-
+  if (alarm.name === "nudge-poll") pollPendingNudges().catch((e) => console.warn("[UT BG] nudge poll failed:", e));
 });
+
+// Run an immediate poll on service-worker startup so the toast can show
+// without waiting up to a minute for the first alarm tick.
+pollPendingNudges().catch((e) => console.warn("[UT BG] startup nudge poll failed:", e));
+
+// Debounced poll triggered when the user opens any Upwork page.
+let nudgePollDebounceTimer = null;
+function schedulePollOnUpworkNav() {
+  if (nudgePollDebounceTimer) return;
+  nudgePollDebounceTimer = setTimeout(() => {
+    nudgePollDebounceTimer = null;
+    pollPendingNudges().catch((e) => console.warn("[UT BG] nav nudge poll failed:", e));
+  }, 1500);
+}
+
+async function pollPendingNudges() {
+  const token = await getAuthToken();
+  if (!token) return;
+  const backendUrl = await getBackendUrl();
+
+  const res = await fetch(`${backendUrl}/api/nudges/pending`, {
+    headers: backendHeaders(token, backendUrl),
+  });
+  if (!res.ok) return;
+  const data = await res.json();
+  const count = data?.count || 0;
+  if (count === 0) return;
+
+  const tabs = await chrome.tabs.query({ url: "*://*.upwork.com/*" });
+  if (tabs.length === 0) return;
+  const target = tabs.find((t) => t.active) || tabs[0];
+
+  chrome.tabs
+    .sendMessage(target.id, {
+      type: "SHOW_NUDGE_SUMMARY",
+      payload: { count, single: data?.single ?? null },
+    })
+    .catch(() => {});
+}
+
+async function ackAllNudges() {
+  const token = await getAuthToken();
+  if (!token) return { ok: false, error: "no token" };
+  const backendUrl = await getBackendUrl();
+  const res = await fetch(`${backendUrl}/api/nudges/ack-all`, {
+    method: "POST",
+    headers: backendHeaders(token, backendUrl, { "Content-Type": "application/json" }),
+  });
+  return { ok: res.ok };
+}
 
 async function checkForAlerts() {
   // Only check stored unreplied messages, don't open any tabs
@@ -251,11 +337,16 @@ async function checkCoverageAndNotify(tabId) {
 // ── Messages ──
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   console.log("[UT BG] Msg:", message.type);
-  handleMessage(message).then(sendResponse);
+  handleMessage(message)
+    .then(sendResponse)
+    .catch((e) => {
+      console.error("[UT BG] handleMessage rejected:", e);
+      try { sendResponse({ ok: false, error: e?.message || String(e) }); } catch {}
+    });
   return true; // async response
 });
 
-async function handleMessage(message) {
+const handleMessage = safeAsync(async (message) => {
   switch (message.type) {
     case "SAVE_ACCOUNT_INFO":
       return handleAccountDetected(message.payload);
@@ -282,6 +373,8 @@ async function handleMessage(message) {
       return handleScrapedApplySubmit(message.payload);
     case "SCRAPED_MESSAGES":
       return handleScrapedMessages(message.payload);
+    case "ACK_ALL_NUDGES":
+      return ackAllNudges();
     case "ANALYZE_COVER_LETTER":
       return handleAnalyzeCoverLetter(message.payload);
     case "INITIAL_STATE":
@@ -302,7 +395,7 @@ async function handleMessage(message) {
     default:
       return { ok: false };
   }
-}
+}, "handleMessage");
 
 // ════════════════════════════════════════════════════
 // ACCOUNT DETECTED (from account-detector.js)
@@ -374,12 +467,35 @@ async function handleScrapedAccount(payload) {
     return { ok: false, note: "Profile does not belong to logged-in user" };
   }
 
-  return syncToBackend("/api/sync/account", {
+  // 1) Existing lightweight account upsert (name / jss / connects).
+  const accountResult = await syncToBackend("/api/sync/account", {
     freelancerId: fid,
     name: accountName || fid,
     jss: jss ?? null,
     connectsBalance: connectsBalance ?? null,
   });
+
+  // 2) Full profile sync (all rich fields — sent best-effort, ignore failure).
+  try {
+    await syncToBackend("/api/sync/freelancer-profile", {
+      freelancerId: fid,
+      name: accountName || null,
+      title: payload.title ?? null,
+      photoUrl: payload.photoUrl ?? null,
+      location: payload.location ?? null,
+      hourlyRate: payload.hourlyRate ?? null,
+      totalEarnings: payload.totalEarnings ?? null,
+      totalJobs: payload.totalJobs ?? null,
+      totalHours: payload.totalHours ?? null,
+      overview: payload.overview ?? null,
+      skills: payload.skills ?? [],
+      rawText: payload.rawText ?? null,
+    });
+  } catch (e) {
+    console.warn("[UT BG] freelancer-profile sync failed:", e);
+  }
+
+  return accountResult;
 }
 
 // ════════════════════════════════════════════════════
