@@ -5,6 +5,7 @@ import { TeamView } from "@/components/admin/TeamView";
 import { TeamStatsView } from "@/components/admin/TeamStatsView";
 import { CoveragePagesView } from "@/components/admin/CoveragePagesView";
 import { CoverageLeaderboardView } from "@/components/admin/CoverageLeaderboardView";
+import { BiddingCriteriaView } from "@/components/admin/BiddingCriteriaView";
 import { OverviewPanel } from "@/components/OverviewPanel";
 import { FreelancerProfileCard } from "@/components/FreelancerProfileCard";
 import type {
@@ -87,6 +88,7 @@ const IconChart = () => (<svg {...iconProps}><line x1="12" y1="20" x2="12" y2="1
 const IconSignOut = () => (<svg {...iconProps}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>);
 const IconCompass = () => (<svg {...iconProps}><circle cx="12" cy="12" r="10" /><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" /></svg>);
 const IconTrophy = () => (<svg {...iconProps}><polyline points="14 9 9 9 9 2 15 2 15 9 10 9" /><path d="M5 9H3a2 2 0 0 0-2 2v1a6 6 0 0 0 6 6h6a6 6 0 0 0 6-6v-1a2 2 0 0 0-2-2h-2" /><line x1="12" y1="18" x2="12" y2="22" /><line x1="8" y1="22" x2="16" y2="22" /></svg>);
+const IconClipboard = () => (<svg {...iconProps}><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" /><rect x="9" y="3" width="6" height="4" rx="1" ry="1" /><line x1="9" y1="12" x2="15" y2="12" /><line x1="9" y1="16" x2="12" y2="16" /></svg>);
 
 function StatCard({ label, value, sub, color, delta }: {
   label: string;
@@ -414,7 +416,8 @@ type Tab =
   | "team"
   | "team-stats"
   | "coverage-pages"
-  | "leaderboard";
+  | "leaderboard"
+  | "bidding-criteria";
 
 // Tooltip style constants were moved to OverviewPanel
 
@@ -764,6 +767,7 @@ export default function Dashboard() {
     { id: "team-stats", label: "Team Stats", icon: <IconChart /> },
     { id: "leaderboard", label: "Leaderboard", icon: <IconTrophy /> },
     { id: "coverage-pages", label: "Coverage Pages", icon: <IconCompass /> },
+    { id: "bidding-criteria", label: "Bid Criteria", icon: <IconClipboard /> },
   ];
 
   const activeTabLabel =
@@ -1155,11 +1159,11 @@ export default function Dashboard() {
                       >
                         📌 
                         {bulkNudgeState === "loading"
-                          ? "Nudging…"
+                          ? " Nudging…"
                           : bulkNudgeState === "ok"
-                          ? bulkNudgeMessage || "Nudged ✓"
+                          ? bulkNudgeMessage || "  Nudged ✓"
                           : bulkNudgeState === "error"
-                          ? bulkNudgeMessage || "Failed"
+                          ? bulkNudgeMessage || " Failed"
                           : ` Nudge all (${unscannedIds.length})`}
                       </button>
                     );
@@ -1792,6 +1796,8 @@ export default function Dashboard() {
           {activeTab === "coverage-pages" && <CoveragePagesView />}
           {/* ── Leaderboard Tab ──────────────────────────────────────────────── */}
           {activeTab === "leaderboard" && <CoverageLeaderboardView />}
+          {/* ── Bid Criteria Tab ─────────────────────────────────────────────── */}
+          {activeTab === "bidding-criteria" && <BiddingCriteriaView />}
 
           {/* ── Footer ───────────────────────────────────────────────────────── */}
           <div className="text-center text-xs text-gray-400 border-t border-gray-100 mt-4 py-4">

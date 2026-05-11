@@ -271,6 +271,18 @@ model Nudge {
   @@index([proposalId])
 }
 
+model BiddingCriterion {
+  id        String   @id @default(cuid())
+  key       String   // e.g. "client_total_spent", "client_rating"
+  operator  String   @default("gte") // "gte", "lte", "eq"
+  value     String   // threshold value e.g. "1000"
+  required  Boolean  @default(true)
+  active    Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model RequiredPage {
   id            String      @id @default(cuid())
   name          String

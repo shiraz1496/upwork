@@ -17,22 +17,41 @@ export const GET = withAttribution(async ({ member }) => {
       id: true,
       createdAt: true,
       proposalId: true,
-      proposal: { select: { jobTitle: true, jobUrl: true } },
+      proposal: {
+        select: {
+          jobTitle: true,
+          jobUrl: true,
+          account: { select: { name: true } },
+        },
+      },
     },
   });
 
-  const single =
-    nudges.length === 1
-      ? {
-          jobTitle: nudges[0].proposal?.jobTitle ?? null,
-          jobUrl: nudges[0].proposal?.jobUrl ?? null,
-        }
-      : null;
+  // Group by account so the extension can show one toast per account
+  const accountMap = new Map<string, typeof nudges>();
+  for (const nudge of nudges) {
+    const name = nudge.proposal?.account?.name ?? "Unknown";
+    if (!accountMap.has(name)) accountMap.set(name, []);
+    accountMap.get(name)!.push(nudge);
+  }
+
+  const byAccount = Array.from(accountMap.entries()).map(([accountName, acctNudges]) => ({
+    accountName,
+    count: acctNudges.length,
+    ids: acctNudges.map((n) => n.id),
+    single:
+      acctNudges.length === 1
+        ? {
+            jobTitle: acctNudges[0].proposal?.jobTitle ?? null,
+            jobUrl: acctNudges[0].proposal?.jobUrl ?? null,
+          }
+        : null,
+  }));
 
   return NextResponse.json({
     count: nudges.length,
     ids: nudges.map((n) => n.id),
     earliestAt: nudges[0]?.createdAt ?? null,
-    single,
+    byAccount,
   });
 });
