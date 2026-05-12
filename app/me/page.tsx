@@ -84,11 +84,18 @@ export default function MePage() {
   const [activeTab, setActiveTab] = useState<MeTab>("overview");
   const [markingRead, setMarkingRead] = useState<string | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const accountsRef = useRef<AccountData[] | null>(null);
+  const selectedAccountIdRef = useRef<string>("all");
+
+  // Keep refs in sync with state so callbacks can read current values without
+  // being included in dependency arrays (which would cause infinite re-renders).
+  useEffect(() => { accountsRef.current = accounts; }, [accounts]);
+  useEffect(() => { selectedAccountIdRef.current = selectedAccountId; }, [selectedAccountId]);
 
   const loadCoverage = useCallback(async (accountId?: string, accountsList?: AccountData[] | null) => {
     let url = "/api/me/coverage";
-    const id = accountId ?? selectedAccountId;
-    const list = accountsList ?? accounts;
+    const id = accountId ?? selectedAccountIdRef.current;
+    const list = accountsList ?? accountsRef.current;
     if (id !== "all" && list) {
       const account = list.find((a) => a.id === id);
       if (account?.freelancerId) url += `?freelancerId=${encodeURIComponent(account.freelancerId)}`;
@@ -101,9 +108,9 @@ export default function MePage() {
       return;
     }
     if (res.ok) setCoverage(await res.json());
-  }, [selectedAccountId, accounts]);
+  }, []);
 
-    const loadAccounts = useCallback(async () => {
+  const loadAccounts = useCallback(async () => {
     const res = await fetch("/api/me/accounts", { cache: "no-store" });
     if (res.status === 401) {
       window.location.href = "/me/login";
@@ -130,7 +137,7 @@ export default function MePage() {
   const loadStats = useCallback(async (accountId: string) => {
     const params = new URLSearchParams();
     if (accountId !== "all") params.set("accountId", accountId);
-    
+
     fetch(`/api/me/stats?${params}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
@@ -143,9 +150,8 @@ export default function MePage() {
 
   useEffect(() => {
     loadAccounts();
-    loadCoverage();
     loadNotes();
-  }, [loadAccounts, loadCoverage, loadNotes]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     loadStats(selectedAccountId);
@@ -165,7 +171,7 @@ export default function MePage() {
       if (pollTimer.current) clearInterval(pollTimer.current);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, [loadCoverage]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function markNoteRead(id: string) {
     setMarkingRead(id);
