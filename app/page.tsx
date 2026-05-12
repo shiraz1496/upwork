@@ -78,7 +78,6 @@ const IconFile = () => (<svg {...iconProps}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 
 const IconBell = () => (<svg {...iconProps}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>);
 const IconCamera = () => (<svg {...iconProps}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>);
 const IconSend = () => (<svg {...iconProps}><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>);
-const IconArchive = () => (<svg {...iconProps}><polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" /></svg>);
 const IconRefresh = () => (<svg {...iconProps} className="w-4 h-4 shrink-0"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>);
 const IconArrowUp = () => (<svg {...iconProps} className="w-3 h-3 shrink-0"><polyline points="18 15 12 9 6 15" /></svg>);
 const IconArrowDown = () => (<svg {...iconProps} className="w-3 h-3 shrink-0"><polyline points="6 9 12 15 18 9" /></svg>);
@@ -412,7 +411,6 @@ type Tab =
   | "submissions"
   | "alerts"
   | "snapshots"
-  | "archive"
   | "team"
   | "team-stats"
   | "coverage-pages"
@@ -590,28 +588,11 @@ export default function Dashboard() {
         return proposalsSortAsc ? ta - tb : tb - ta;
       });
     }
-    const ARCHIVE_SECTIONS = ["Archived proposals", "Archived interviews"];
     const order = ["Offers", "Invites from clients", "Active proposals", "Submitted proposals", "Other", "Unknown"];
     return Array.from(sections.entries())
-      .filter(([sec]) => !ARCHIVE_SECTIONS.includes(sec))
+      .filter(([sec]) => !sec.toLowerCase().includes("archived"))
       .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
   }, [allProposals, proposalsSortAsc]);
-
-  const archivedSections = useMemo(() => {
-    const ARCHIVE_SECTIONS = ["Archived proposals", "Archived interviews"];
-    const sections = new Map<string, ProposalData[]>();
-    for (const p of allProposals) {
-      const sec = p.section || "Other";
-      if (!ARCHIVE_SECTIONS.includes(sec)) continue;
-      if (!sections.has(sec)) sections.set(sec, []);
-      sections.get(sec)!.push(p);
-    }
-    for (const [, props] of sections) {
-      props.sort((a, b) => new Date(b.submittedAt || b.createdAt).getTime() - new Date(a.submittedAt || a.createdAt).getTime());
-    }
-    const order = ["Archived proposals", "Archived interviews"];
-    return Array.from(sections.entries()).sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
-  }, [allProposals]);
 
   const filteredProposalSections = useMemo(() => {
     let sections = proposalFilter === "all"
@@ -746,7 +727,6 @@ export default function Dashboard() {
     { id: "proposals", label: "Proposals", count: sortedProposalSections.reduce((s, [, p]) => s + p.length, 0), icon: <IconFile /> },
     { id: "alerts", label: "Alerts", count: unreadAlerts.length, icon: <IconBell /> },
     { id: "submissions", label: "Submissions", count: submissions.length, icon: <IconSend /> },
-    { id: "archive", label: "Archive", count: archivedSections.reduce((s, [, p]) => s + p.length, 0), icon: <IconArchive /> },
     // { id: "snapshots", label: "Snapshots", count: filteredSnapshots.length, icon: <IconCamera /> },
   ];
 
@@ -1200,7 +1180,6 @@ export default function Dashboard() {
               ) : (
                 <div className="flex flex-col gap-6">
                   {filteredProposalSections.map(([section, props]) => {
-                    const isArchived = section.toLowerCase().includes("archived");
                     const isInterview = section.toLowerCase().includes("interview");
                     const sectionImpliesViewed = /active|offers?|interviewing/i.test(section);
                     const unit = isInterview ? "interview" : "proposal";
@@ -1211,46 +1190,7 @@ export default function Dashboard() {
                           <span className="text-xs text-gray-400">{props.length} {unit}{props.length !== 1 ? "s" : ""}</span>
                         </div>
                         <div className="border border-gray-200 rounded-xl overflow-x-auto scrollbar-hide shadow-sm">
-                          {isArchived ? (
-                            <table className="w-full text-sm">
-                              <thead>
-                                <tr className="border-b border-gray-200 bg-gray-50">
-                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">{isInterview ? "Received" : "Initiated"}</th>
-                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Job Title</th>
-                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Status</th>
-                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Profile</th>
-                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Submitted By</th>
-                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Captured By</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {props.map((p) => (
-                                  <tr
-                                    key={p.id}
-                                    onClick={() => setSelectedProposal(p)}
-                                    className="border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors"
-                                  >
-                                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
-                                      {p.submittedAt ? fmtDateTime(p.submittedAt) : fmtDateTime(p.createdAt)}
-                                    </td>
-                                    <td className="px-4 py-3 max-w-md">
-                                      <span className="text-teal-600 font-medium truncate block">{p.jobTitle || "Untitled"}</span>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                      {p.status
-                                        ? <Badge text={p.status} variant="gray" />
-                                        : <span className="text-gray-300 text-xs">—</span>
-                                      }
-                                    </td>
-                                    <td className="px-4 py-3 text-gray-500 text-xs">{p.profileUsed || "—"}</td>
-                                    <td className="px-4 py-3 text-gray-500 text-xs">{p.submittedBy?.name || <span className="italic text-gray-400">—</span>}</td>
-                                    <td className="px-4 py-3 text-gray-500 text-xs">{p.capturedBy?.name || <span className="italic text-gray-400">—</span>}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          ) : (
-                            <table className="w-full text-sm">
+                          <table className="w-full text-sm">
                               <thead>
                                 <tr className="border-b border-gray-200 bg-gray-50">
                                   <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Job Title</th>
@@ -1416,7 +1356,6 @@ export default function Dashboard() {
                                 ))}
                               </tbody>
                             </table>
-                          )}
                         </div>
                       </div>
                     );
@@ -1633,85 +1572,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ── Archive Tab ──────────────────────────────────────────────────── */}
-          {activeTab === "archive" && (
-            <div className="py-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
-                  Archive
-                  <span className="ml-2 text-gray-400 font-normal normal-case tracking-normal">
-                    ({archivedSections.reduce((s, [, p]) => s + p.length, 0)})
-                  </span>
-                </h2>
-              </div>
-
-              {archivedSections.length === 0 ? (
-                <div className="border border-dashed border-gray-200 rounded-xl py-20 px-6 text-center">
-                  <div className="mx-auto w-12 h-12 rounded-full bg-gray-100 text-gray-400 border border-gray-200 flex items-center justify-center mb-4">
-                    <IconArchive />
-                  </div>
-                  <h3 className="text-sm font-semibold text-gray-700">Archive is empty</h3>
-                  <p className="text-xs text-gray-400 mt-1 max-w-md mx-auto">
-                    Archived proposals and interviews will appear here once they're captured by the extension.
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-6">
-                  {archivedSections.map(([section, props]) => {
-                    const isInterview = section.toLowerCase().includes("interview");
-                    const unit = isInterview ? "interview" : "proposal";
-                    return (
-                      <div key={section}>
-                        <div className="flex items-center gap-3 mb-3">
-                          <Badge text={section} variant={sectionBadgeVariant(section)} />
-                          <span className="text-xs text-gray-400">{props.length} {unit}{props.length !== 1 ? "s" : ""}</span>
-                        </div>
-                        <div className="border border-gray-200 rounded-xl overflow-x-auto scrollbar-hide shadow-sm">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b border-gray-200 bg-gray-50">
-                                <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">{isInterview ? "Received" : "Initiated"}</th>
-                                <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Job Title</th>
-                                <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Status</th>
-                                <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Profile</th>
-                                <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Submitted By</th>
-                                <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Captured By</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {props.map((p) => (
-                                <tr
-                                  key={p.id}
-                                  onClick={() => setSelectedProposal(p)}
-                                  className="border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors"
-                                >
-                                  <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
-                                    {p.submittedAt ? fmtDateTime(p.submittedAt) : fmtDateTime(p.createdAt)}
-                                  </td>
-                                  <td className="px-4 py-3 max-w-md">
-                                    <span className="text-teal-600 font-medium truncate block">{p.jobTitle || "Untitled"}</span>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    {p.status
-                                      ? <Badge text={p.status} variant="gray" />
-                                      : <span className="text-gray-300 text-xs">—</span>
-                                    }
-                                  </td>
-                                  <td className="px-4 py-3 text-gray-500 text-xs">{p.profileUsed || "—"}</td>
-                                  <td className="px-4 py-3 text-gray-500 text-xs">{p.submittedBy?.name || <span className="italic text-gray-400">—</span>}</td>
-                                  <td className="px-4 py-3 text-gray-500 text-xs">{p.capturedBy?.name || <span className="italic text-gray-400">—</span>}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
 
           {/* ── Snapshots Tab ────────────────────────────────────────────────── */}
           {activeTab === "snapshots" && (

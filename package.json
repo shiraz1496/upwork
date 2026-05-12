@@ -11,6 +11,8 @@
     "db:generate": "sh -c 'set -a && source .env && set +a && DATABASE_URL=$DATABASE_URL npx prisma generate'",
     "db:push": "sh -c 'set -a && source .env && set +a && DATABASE_URL=$DATABASE_URL npx prisma db push'",
     "db:sync": "sh -c 'set -a && source .env && set +a && DATABASE_URL=$DATABASE_URL npx prisma generate && DATABASE_URL=$DATABASE_URL npx prisma db push'",
+    "db:remove-archived:dry": "sh -c 'set -a && source .env && set +a && DATABASE_URL=$DATABASE_URL node scripts/remove-archived-proposals.mjs --dry-run'",
+    "db:remove-archived": "sh -c 'set -a && source .env && set +a && DATABASE_URL=$DATABASE_URL node scripts/remove-archived-proposals.mjs'",
     "ext": "./extension/build.sh"
   },
   "dependencies": {

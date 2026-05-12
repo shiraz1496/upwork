@@ -873,7 +873,7 @@ async function scrapeProposals() {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
-      const sectionMatch = line.match(/^(Offers?|Invites?\s*from\s*clients?|Active\s*proposals?|Submitted\s*proposals?|Archived\s*proposals?|Archived\s*interviews?)\s*\(\d+\)/i);
+      const sectionMatch = line.match(/^(Offers?|Invites?\s*from\s*clients?|Active\s*proposals?|Submitted\s*proposals?)\s*\(\d+\)/i);
       if (sectionMatch) {
         const raw = sectionMatch[1].trim().toLowerCase().replace(/\s+/g, " ");
         const canonicalMap = {
@@ -886,10 +886,6 @@ async function scrapeProposals() {
           "active proposal": "Active proposals",
           "submitted proposals": "Submitted proposals",
           "submitted proposal": "Submitted proposals",
-          "archived proposals": "Archived proposals",
-          "archived proposal": "Archived proposals",
-          "archived interviews": "Archived interviews",
-          "archived interview": "Archived interviews",
         };
         currentSection = canonicalMap[raw] || sectionMatch[1].trim();
         continue;
@@ -1078,7 +1074,7 @@ async function scrapeProposalDetail() {
   const isInterview = /\/proposals\/interview\/uid\//.test(proposal.detailUrl);
 
   if (isInterview) {
-    proposal.section = "Archived interviews";
+    proposal.section = "Invites from clients";
     const heading = (document.querySelector("h1, h2")?.textContent || "").trim().toLowerCase();
     if (/declined\s+invitation/.test(heading)) proposal.status = "Declined by You";
     else if (/accepted\s+invitation/.test(heading)) proposal.status = "Accepted";
