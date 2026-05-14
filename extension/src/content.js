@@ -129,8 +129,8 @@ function formatCriterionLabel(c) {
 
 async function evaluateAndShowCriteria(job, isRetry = false) {
   try {
-    const data = await chrome.storage.local.get(["biddingCriteria"]);
-    const criteria = data.biddingCriteria || [];
+    const data = await new Promise((resolve) => chrome.runtime.sendMessage({ type: "GET_BIDDING_CRITERIA" }, resolve));
+    const criteria = (data && data.criteria) || [];
     if (criteria.length === 0) return;
     const results = criteria.map((c) => ({ ...c, status: checkCriterion(c, job) }));
     injectCriteriaPanel(job, results);
@@ -2288,6 +2288,7 @@ function injectAnalysisPanel() {
 
 let inlineSaveButtonInjected = false;
 let inlineSaveObserver = null;
+let submitBlockObserver = null;
 
 function expandJobDescriptionOnly() {
   let container = document.querySelector(
@@ -2319,11 +2320,11 @@ function expandJobDescriptionOnly() {
   return clicked > 0;
 }
 
+const submitRe = /send\s+for\s+\d+\+?\s*connects?|submit(\s+a)?\s+proposal|send\s+proposal/i;
+
 function injectInlineSaveButton() {
   if (inlineSaveButtonInjected) return;
   expandJobDescriptionOnly();
-
-  const submitRe = /send\s+for\s+\d+\+?\s*connects?|submit(\s+a)?\s+proposal|send\s+proposal/i;
 
   const tryInject = () => {
     if (document.getElementById("ut-inline-save")) {
@@ -2335,6 +2336,14 @@ function injectInlineSaveButton() {
       return submitRe.test(t);
     });
     if (!submit || !submit.parentElement) return false;
+
+    // Disable submit until tracker save succeeds — keep re-disabling if React overrides it
+    submit.disabled = true;
+    submit.dataset.utBlocked = "1";
+    submitBlockObserver = new MutationObserver(() => {
+      if (submit.dataset.utBlocked && !submit.disabled) submit.disabled = true;
+    });
+    submitBlockObserver.observe(submit, { attributes: true, attributeFilter: ["disabled"] });
 
     const wrap = document.createElement("span");
     wrap.id = "ut-inline-save-wrap";
@@ -2360,6 +2369,7 @@ function injectInlineSaveButton() {
     const status = document.createElement("span");
     status.id = "ut-inline-save-status";
     status.style.cssText = "font-size:12px;color:#5e6d7e;font-family:inherit;";
+    status.textContent = "Save to Tracker before submitting";
 
     btn.addEventListener("click", () => saveApplyToTrackerInline(btn, status));
 
@@ -2457,6 +2467,16 @@ async function saveApplyToTrackerInline(btn, status) {
       }
       status.style.color = "#108a00";
       status.textContent = "Saved ✓";
+      // Unblock the submit button
+      submitBlockObserver?.disconnect();
+      submitBlockObserver = null;
+      const submitBtn = Array.from(document.querySelectorAll('button, [role="button"]')).find((b) =>
+        submitRe.test((b.textContent || "").replace(/\s+/g, " ").trim())
+      );
+      if (submitBtn && submitBtn.dataset.utBlocked) {
+        delete submitBtn.dataset.utBlocked;
+        submitBtn.disabled = false;
+      }
     },
   );
 }
@@ -2631,9 +2651,8 @@ function watchForJobPanel() {
           }, 3500);
         }
       } else if (lastJobPanelUrl !== null) {
-        // Panel closed — reset so reopening the same job re-evaluates,
-        // but leave the criteria panel visible on screen
         lastJobPanelUrl = null;
+        document.getElementById("ut-criteria-panel")?.remove();
       }
     } catch (e) {
       console.error("[UT] panel observer threw:", e);
@@ -2641,6 +2660,16 @@ function watchForJobPanel() {
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // Safety net: panel may close mid-animation so the observer misses the transition.
+  // Poll every 800 ms and remove the criteria panel if no job panel is open.
+  setInterval(() => {
+    if (!isContextValid()) return;
+    if (document.getElementById("ut-criteria-panel") && !isJobPanelOpen()) {
+      lastJobPanelUrl = null;
+      document.getElementById("ut-criteria-panel")?.remove();
+    }
+  }, 800);
 }
 
 // ── Watch for filter changes on stats page ──

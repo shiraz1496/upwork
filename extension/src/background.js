@@ -165,14 +165,11 @@ ensureAlarm("check-alerts", { periodInMinutes: 2 });
 ensureAlarm("reply-reminder", { periodInMinutes: 3 });
 ensureAlarm("refresh-required-pages", { periodInMinutes: 30 });
 ensureAlarm("nudge-poll", { periodInMinutes: 1 });
-ensureAlarm("refresh-bidding-criteria", { periodInMinutes: 30 });
-
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "check-alerts") checkForAlerts();
   if (alarm.name === "reply-reminder") checkUnrepliedMessages();
   if (alarm.name === "refresh-required-pages") fetchRequiredPages();
   if (alarm.name === "nudge-poll") pollPendingNudges().catch((e) => console.warn("[UT BG] nudge poll failed:", e));
-  if (alarm.name === "refresh-bidding-criteria") fetchBiddingCriteria();
 });
 
 // Run an immediate poll on service-worker startup so the toast can show
@@ -259,18 +256,18 @@ async function checkUnrepliedMessages() {
 
 async function fetchBiddingCriteria() {
   const token = await getAuthToken();
-  if (!token) return;
+  if (!token) return [];
   const backendUrl = await getBackendUrl();
   try {
     const res = await fetch(`${backendUrl}/api/bidding-criteria`, {
       headers: backendHeaders(token, backendUrl),
     });
-    if (!res.ok) return;
+    if (!res.ok) return [];
     const data = await res.json();
-    await chrome.storage.local.set({ biddingCriteria: data.criteria || [] });
-    console.log("[UT BG] Loaded", (data.criteria || []).length, "bidding criteria");
+    return data.criteria || [];
   } catch (e) {
     console.warn("[UT BG] fetchBiddingCriteria error", e);
+    return [];
   }
 }
 
@@ -411,6 +408,10 @@ const handleMessage = safeAsync(async (message) => {
       return handleClearToken();
     case "FORCE_SYNC":
       return handleForceSync();
+    case "GET_BIDDING_CRITERIA": {
+      const criteria = await fetchBiddingCriteria();
+      return { criteria };
+    }
     case "GET_STATUS": {
       const data = await chrome.storage.local.get([
         "lastSync", "lastAccountInfo", "syncCount", "backendUrl",
@@ -796,7 +797,6 @@ async function handleSetToken({ raw }) {
     const { member } = await res.json();
     await chrome.storage.local.set({ authToken: raw, authMember: member, authError: null });
     fetchRequiredPages();
-    fetchBiddingCriteria();
     return { ok: true, member };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -811,7 +811,6 @@ async function handleClearToken() {
 async function handleForceSync() {
   const { lastAccountInfo: info } = await chrome.storage.local.get(["lastAccountInfo"]);
   fetchRequiredPages();
-  fetchBiddingCriteria();
   if (!info?.userId) return { ok: false, error: "No account info yet — open any Upwork page" };
   return syncToBackend("/api/sync/account", {
     freelancerId: info.userId,
@@ -820,4 +819,3 @@ async function handleForceSync() {
 }
 
 fetchRequiredPages();
-fetchBiddingCriteria();
