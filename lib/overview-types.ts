@@ -124,6 +124,22 @@ export interface AccountData {
   proposals: ProposalData[];
   proposalCount: number;
   alertCounts?: { messages: number; invites: number; offers: number };
+  profile: FreelancerProfileData | null;
+}
+
+export interface FreelancerProfileData {
+  title: string | null;
+  photoUrl: string | null;
+  location: string | null;
+  hourlyRate: string | null;
+  totalEarnings: string | null;
+  totalJobs: number | null;
+  totalHours: number | null;
+  overview: string | null;
+  skills: string[];
+  capturedAt: string;
+  updatedAt: string;
+  capturedBy: { id: string; name: string } | null;
 }
 
 export type OverviewRange = "7d" | "30d" | "90d";

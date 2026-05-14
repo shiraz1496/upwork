@@ -67,6 +67,166 @@ function sendToBackground(type, data) {
   });
 }
 
+// ── Bidding criteria evaluation ──
+
+const CRITERIA_FIELD_LABELS = {
+  client_total_spent:      "Client Total Spent",
+  client_rating:           "Client Rating",
+  client_hire_rate:        "Client Hire Rate",
+  client_reviews:          "Client Reviews",
+  client_jobs_posted:      "Client Jobs Posted",
+  client_hires:            "Client Hires",
+  client_active_hires:     "Client Active Hires",
+  client_payment_verified: "Payment Verified",
+};
+
+function parseCurrencyToNumber(str) {
+  if (typeof str === "number") return str;
+  if (!str) return null;
+  const s = String(str).replace(/[$,\s+]/g, "").toUpperCase();
+  const m = s.match(/^([\d.]+)([KMB]?)$/);
+  if (!m) return null;
+  const mult = { K: 1000, M: 1000000, B: 1000000000 }[m[2]] || 1;
+  return parseFloat(m[1]) * mult;
+}
+
+function getJobFieldValue(key, job) {
+  switch (key) {
+    case "client_total_spent":      return parseCurrencyToNumber(job.clientSpent);
+    case "client_rating":           return job.clientRating ?? null;
+    case "client_hire_rate":        return job.clientHireRate ?? null;
+    case "client_reviews":          return job.clientReviews ?? null;
+    case "client_jobs_posted":      return job.clientJobsPosted ?? null;
+    case "client_hires":            return job.clientHires ?? null;
+    case "client_active_hires":     return job.clientActiveHires ?? null;
+    case "client_payment_verified": return job.clientPaymentVerified ?? null;
+    default:                        return null;
+  }
+}
+
+function checkCriterion(criterion, job) {
+  const actual = getJobFieldValue(criterion.key, job);
+  if (actual === null || actual === undefined) return "unknown";
+  if (criterion.key === "client_payment_verified") return actual === true ? "pass" : "fail";
+  const threshold = parseFloat(criterion.value);
+  if (isNaN(threshold)) return "unknown";
+  const pass = criterion.operator === "gte" ? actual >= threshold
+             : criterion.operator === "lte" ? actual <= threshold
+             : actual === threshold;
+  return pass ? "pass" : "fail";
+}
+
+function formatCriterionLabel(c) {
+  const label = CRITERIA_FIELD_LABELS[c.key] || c.key;
+  if (c.key === "client_payment_verified") return label;
+  const op = c.operator === "gte" ? "≥" : c.operator === "lte" ? "≤" : "=";
+  const val = c.key === "client_total_spent" ? `$${Number(c.value).toLocaleString()}`
+            : c.key === "client_hire_rate"   ? `${c.value}%`
+            : c.key === "client_rating"      ? `${c.value}/5`
+            : c.value;
+  return `${label} ${op} ${val}`;
+}
+
+async function evaluateAndShowCriteria(job, isRetry = false) {
+  try {
+    const data = await new Promise((resolve) => chrome.runtime.sendMessage({ type: "GET_BIDDING_CRITERIA" }, resolve));
+    const criteria = (data && data.criteria) || [];
+    if (criteria.length === 0) return;
+    const results = criteria.map((c) => ({ ...c, status: checkCriterion(c, job) }));
+    injectCriteriaPanel(job, results);
+
+    // If required criteria are still unknown and this isn't already a retry,
+    // re-scrape after a delay to pick up lazily-loaded client data
+    const hasRequiredUnknown = results.some((r) => r.required && r.status === "unknown");
+    if (hasRequiredUnknown && !isRetry) {
+      const jobUrlSnapshot = job.url;
+      setTimeout(async () => {
+        try {
+          // Only retry if the same job panel is still open
+          if (!isJobPanelOpen()) return;
+          const currentUrl = findJobUrl(findJobContainer());
+          if (currentUrl !== jobUrlSnapshot) return;
+          const retryJob = await scrapeJobData();
+          if (retryJob?.title) evaluateAndShowCriteria(retryJob, true).catch(() => {});
+        } catch (e) { console.warn("[UT] criteria retry error:", e); }
+      }, 5000);
+    }
+  } catch (e) {
+    console.warn("[UT] evaluateAndShowCriteria error:", e);
+  }
+}
+
+function injectCriteriaPanel(job, results) {
+  document.getElementById("ut-criteria-panel")?.remove();
+
+  const requiredFailed   = results.filter((r) => r.required && r.status === "fail");
+  const requiredUnknown  = results.filter((r) => r.required && r.status === "unknown");
+  const hasUnknown       = results.some((r) => r.status === "unknown");
+  const allRequiredPassed = requiredFailed.length === 0 && requiredUnknown.length === 0;
+  const stillLoading      = requiredFailed.length === 0 && requiredUnknown.length > 0;
+
+  const verdictColor = stillLoading ? "#92400e" : allRequiredPassed ? "#108a00" : "#dc2626";
+  const verdictLabel = stillLoading ? "⏳ Loading client data..." : allRequiredPassed ? "✓ Worth applying" : "✗ Not recommended";
+  const verdictBg    = stillLoading ? "#fffbeb" : allRequiredPassed ? "#f0fdf4" : "#fef2f2";
+
+  const rows = results.map((r) => {
+    const icon       = r.status === "pass" ? "✓" : r.status === "fail" ? "✗" : "?";
+    const iconColor  = r.status === "pass" ? "#108a00" : r.status === "fail" ? "#dc2626" : "#9ca3af";
+    const labelColor = r.status === "fail" && r.required ? "#dc2626" : "#374151";
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #f3f4f6;">
+        <span style="font-size:14px;font-weight:700;color:${iconColor};width:16px;text-align:center;flex-shrink:0;">${icon}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:12px;font-weight:${r.required ? "600" : "400"};color:${labelColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${formatCriterionLabel(r)}">${formatCriterionLabel(r)}</div>
+          ${r.status === "unknown" ? '<div style="font-size:11px;color:#9ca3af;">Not visible on page</div>' : ""}
+        </div>
+        ${r.required ? '<span style="font-size:10px;color:#6b7280;background:#f3f4f6;padding:1px 5px;border-radius:4px;flex-shrink:0;">req</span>' : ""}
+      </div>`;
+  }).join("");
+
+  const panel = document.createElement("div");
+  panel.id = "ut-criteria-panel";
+  panel.setAttribute("style", [
+    "position:fixed", "right:20px", "top:80px", "width:300px",
+    "background:#fff", "color:#0e1925", "border:1px solid #d5dde5", "border-radius:12px",
+    "box-shadow:0 10px 40px rgba(14,25,37,0.18)", "z-index:2147483647",
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+    "overflow:hidden",
+  ].join(";"));
+
+  panel.innerHTML = `
+    <div id="ut-criteria-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:${verdictBg};border-bottom:1px solid #e5e7eb;cursor:move;">
+      <div style="font-weight:700;font-size:13px;color:${verdictColor};">${verdictLabel}</div>
+      <button id="ut-criteria-close" style="background:transparent;color:#9ca3af;border:0;cursor:pointer;font-size:16px;line-height:1;padding:0 4px;">✕</button>
+    </div>
+    <div style="max-height:280px;overflow-y:auto;">${rows}</div>
+    ${hasUnknown ? '<div style="padding:7px 14px;font-size:11px;color:#9ca3af;border-top:1px solid #f3f4f6;">? = client data not shown on this page</div>' : ""}
+  `;
+
+  document.body.appendChild(panel);
+
+  // Drag
+  const header = panel.querySelector("#ut-criteria-header");
+  let dragging = false, offX = 0, offY = 0;
+  header.addEventListener("mousedown", (e) => {
+    if (e.target.tagName === "BUTTON") return;
+    dragging = true;
+    const rect = panel.getBoundingClientRect();
+    offX = e.clientX - rect.left;
+    offY = e.clientY - rect.top;
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    panel.style.left  = (e.clientX - offX) + "px";
+    panel.style.top   = (e.clientY - offY) + "px";
+    panel.style.right = "auto";
+  });
+  document.addEventListener("mouseup", () => { dragging = false; });
+
+  panel.querySelector("#ut-criteria-close").addEventListener("click", () => panel.remove());
+}
+
 // ── Bad titles to always skip ──
 const BAD_TITLES = [
   "open job in a new window", "open job", "my proposals", "my stats",
@@ -132,73 +292,207 @@ function scrapeAccount() {
   // ── userId from URL: /freelancers/~01f1419b6ce5c07b08 ──
   const profileMatch = window.location.href.match(/\/freelancers\/~(\w+)/);
   if (profileMatch) info.userId = profileMatch[1];
-
-  // Also try meta tag and script data
   if (!info.userId) info.userId = extractUserId();
 
   // ── Name: first h1 or h2 that looks like a person's name ──
-  const headings = document.querySelectorAll('h1, h2');
+  const headings = document.querySelectorAll("h1, h2");
   for (const h of headings) {
     const text = h.textContent.trim();
-    // Person name: 2-40 chars, starts uppercase, letters/dots/spaces only, no pipes
     if (text.length >= 2 && text.length <= 40 && /^[A-Z][a-zA-Z.\s'-]+$/.test(text)) {
       info.name = text;
       break;
     }
   }
 
-  // ── Professional title: long h2 with pipe or comma ──
-  for (const h of headings) {
-    const t = h.textContent.trim();
-    if (t.length > 15 && (t.includes('|') || t.includes(',')) && t !== info.name) {
-      info.title = t;
-      break;
-    }
+  // ── Professional title (heading-like element with "|" / "," / role keyword) ──
+  info.title = extractTitle(info.name);
+
+  // ── Photo URL: largest <img> in the header / first non-decorative ──
+  const photoCandidates = Array.from(document.querySelectorAll("img"))
+    .map((img) => ({
+      img,
+      src: img.currentSrc || img.src || "",
+      area: (img.naturalWidth || img.width || 0) * (img.naturalHeight || img.height || 0),
+    }))
+    .filter((c) => c.src && /upwork|profile|avatar|photo/i.test(c.src) && !/icon|sprite|logo/i.test(c.src));
+  if (photoCandidates.length > 0) {
+    photoCandidates.sort((a, b) => b.area - a.area);
+    info.photoUrl = photoCandidates[0].src;
   }
 
-  // ── Connects ──
+  // ── Numeric stats (top metrics block) ──
   const connectsMatch = bodyText.match(/connects\s*:?\s*([\d,]+)/i);
   if (connectsMatch) info.connectsBalance = parseInt(connectsMatch[1].replace(/,/g, ""));
 
-  // ── JSS ──
-  const jssMatch = bodyText.match(/job\s*success\s*(?:score)?\s*:?\s*(\d+)\s*%?/i) ||
+  const jssMatch =
+    bodyText.match(/job\s*success\s*(?:score)?\s*:?\s*(\d+)\s*%?/i) ||
     bodyText.match(/(\d+)\s*%?\s*job\s*success/i);
   if (jssMatch) {
     const n = parseInt(jssMatch[1]);
     if (n > 0 && n <= 100) info.jss = n;
   }
 
-  // ── Total earnings: "$30\nTotal earnings" ──
+  const rateMatch = bodyText.match(/\$([\d,.]+)\s*\/\s*hr/i);
+  if (rateMatch) info.hourlyRate = "$" + rateMatch[1] + "/hr";
+
   const earningsMatch = bodyText.match(/\$([\d,.]+[KkMm+]*)\s*\n?\s*total\s*earnings/i);
   if (earningsMatch) info.totalEarnings = earningsMatch[1];
 
-  // ── Total jobs: "1\nTotal jobs" ──
   const jobsMatch = bodyText.match(/(\d[\d,]*)\s*\n?\s*total\s*jobs/i);
   if (jobsMatch) info.totalJobs = parseInt(jobsMatch[1].replace(/,/g, ""));
 
-  // ── Total hours: "1\nTotal hours" ──
   const hoursMatch = bodyText.match(/([\d,]+)\s*\n?\s*total\s*hours/i);
   if (hoursMatch) info.totalHours = parseInt(hoursMatch[1].replace(/,/g, ""));
 
-  // ── Hourly rate: "$15.00/hr" ──
-  const rateMatch = bodyText.match(/\$([\d,.]+)\s*\/\s*hr/i);
-  if (rateMatch) info.hourlyRate = rateMatch[1];
+  // ── Location ──
+  const locMatch = bodyText.match(/([\w\s]+,\s*[\w\s]+)\s*[-–]\s*\d+:\d+\s*(?:am|pm)\s*local\s*time/i);
+  if (locMatch) {
+    info.location = locMatch[1].trim();
+  } else {
+    const locOnly = bodyText.match(/([A-Z][\w\s]+,\s*[A-Z][\w\s]+)/);
+    if (locOnly && locOnly[1].length < 60) info.location = locOnly[1].trim();
+  }
 
-  // ── Location: "Islamabad, Pakistan – 3:15 pm local time" ──
-  const locMatch = bodyText.match(/([\w\s]+,\s*[\w\s]+)\s*[-–]\s*\d+:\d+\s*(?:am|pm)/i);
-  if (locMatch) info.location = locMatch[1].trim();
+  // ── Overview / bio ──
+  const ov = extractOverview();
+  if (ov) info.overview = trimText(ov, 4000);
 
-  // ── Availability ──
-  if (/available\s*now/i.test(bodyText)) info.availableNow = true;
+  // ── Skills ──
+  info.skills = extractSkills();
 
-  console.log("[UT] Profile scraped:", JSON.stringify(info).slice(0, 400));
+  console.log(
+    "[UT] Profile scraped:",
+    JSON.stringify({
+      ...info,
+      overview: info.overview ? `${info.overview.length} chars` : null,
+    }).slice(0, 600),
+  );
 
-  // ALWAYS send to background if we have anything useful
   if (info.userId || info.name || info.connectsBalance || info.jss) {
     sendToBackground("SCRAPED_ACCOUNT", info);
   } else {
     console.log("[UT] No account data found");
   }
+}
+
+// ── Profile scraper helpers ─────────────────────────────────────────────
+function trimText(s, max) {
+  if (!s) return null;
+  const t = String(s).replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return t.length > max ? t.slice(0, max) : t;
+}
+
+function findSectionByHeading(needles) {
+  const headings = Array.from(document.querySelectorAll("h1, h2, h3, h4, [role='heading']"));
+  for (const h of headings) {
+    const t = (h.textContent || "").trim().toLowerCase();
+    if (!needles.some((n) => t === n || t.startsWith(n))) continue;
+    // Walk up to a sensible container, then collect sibling text
+    let section = h.closest("section, [class*='section'], [class*='card'], [class*='module']");
+    if (!section) {
+      section = h.parentElement;
+      // Climb until we have enough content
+      while (section && section.innerText.length < 80 && section.parentElement) {
+        section = section.parentElement;
+      }
+    }
+    if (section) {
+      const txt = section.innerText.replace(new RegExp("^" + h.textContent + "\\s*", "i"), "").trim();
+      if (txt.length > 0) return txt;
+    }
+  }
+  return null;
+}
+
+function extractSkills() {
+  // Skills typically render as a list of small badges/chips.
+  const sectionEl = findSectionContainer(["skills", "skills and expertise"]);
+  if (!sectionEl) return [];
+  const chips = Array.from(
+    sectionEl.querySelectorAll("li, [class*='token'], [class*='chip'], [class*='tag'], [class*='skill'], button, a"),
+  );
+  const seen = new Set();
+  const out = [];
+  for (const el of chips) {
+    const t = (el.textContent || "").trim();
+    if (!t || t.length > 60) continue;
+    if (/^(more|less|view all|edit|add)/i.test(t)) continue;
+    if (seen.has(t.toLowerCase())) continue;
+    seen.add(t.toLowerCase());
+    out.push(t);
+    if (out.length >= 100) break;
+  }
+  return out;
+}
+
+function findSectionContainer(needles) {
+  const headings = Array.from(document.querySelectorAll("h1, h2, h3, h4, [role='heading']"));
+  for (const h of headings) {
+    const t = (h.textContent || "").trim().toLowerCase();
+    if (!needles.some((n) => t === n || t.startsWith(n))) continue;
+    let section = h.closest("section, [class*='section'], [class*='card'], [class*='module']");
+    if (section) return section;
+    return h.parentElement;
+  }
+  return null;
+}
+
+function extractTitle(name) {
+  const candidates = Array.from(
+    document.querySelectorAll(
+      "h1, h2, h3, h4, [role='heading'], [class*='title'], [class*='headline']",
+    ),
+  );
+  const seen = new Set();
+  for (const h of candidates) {
+    const t = (h.textContent || "")
+      .replace(/[​-‏﻿]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!t || t.length < 15 || t.length > 250) continue;
+    if (name && t === name) continue;
+    if (seen.has(t)) continue;
+    seen.add(t);
+    const hasPipeOrComma = t.includes("|") || t.includes(",");
+    const hasRoleWord =
+      /\b(developer|designer|engineer|specialist|consultant|expert|manager|architect|strategist|analyst|writer|marketer|automation|full[- ]?stack|fullstack|frontend|backend)\b/i.test(
+        t,
+      );
+    if (hasPipeOrComma || hasRoleWord) return t;
+  }
+  return null;
+}
+
+function extractOverview() {
+  const isBlurb = (t) => /^a summary of your upwork history/i.test(t);
+
+  // Strategy 1: walk up from a "more"/"less" toggle — the bio uses one.
+  const buttons = Array.from(document.querySelectorAll("button, a"));
+  for (const btn of buttons) {
+    const t = (btn.textContent || "").trim();
+    if (!/^(show\s+)?(more|less)$/i.test(t)) continue;
+    let el = btn.parentElement;
+    for (let i = 0; i < 6 && el; i++) {
+      const text = (el.innerText || "").trim();
+      if (text.length > 200 && text.length < 8000 && !isBlurb(text)) {
+        return text.replace(/\b(show\s+)?(more|less)\s*$/i, "").trim();
+      }
+      el = el.parentElement;
+    }
+  }
+
+  // Strategy 2: heading-based search (skip the Upwork-AI blurb).
+  const headed = findSectionByHeading(["overview", "about me", "summary"]);
+  if (headed && !isBlurb(headed)) return headed;
+
+  // Strategy 3: longest non-blurb paragraph fallback.
+  const paragraphs = Array.from(
+    document.querySelectorAll("p, [class*='description'], [class*='overview']"),
+  )
+    .map((el) => (el.innerText || "").trim())
+    .filter((t) => t.length > 200 && t.length < 5000)
+    .filter((t) => !isBlurb(t));
+  return paragraphs[0] || null;
 }
 
 // ── SCRAPER: Stats Page ──
@@ -362,11 +656,8 @@ function findJobUrl(container) {
   return window.location.href;
 }
 
-// ── SCRAPER: Job Post (full page OR side panel) ──
-async function scrapeJob() {
-  console.log("[UT] Scraping job post...");
-
-  // Scroll to load all lazy content
+// ── Extract job data from the current DOM (shared by scrapeJob and criteria retry) ──
+async function scrapeJobData() {
   await scrollToLoadAll();
 
   const container = findJobContainer();
@@ -545,9 +836,16 @@ async function scrapeJob() {
   }
 
   console.log("[UT] Job scraped:", JSON.stringify(job).slice(0, 500));
+  return job;
+}
 
+// ── SCRAPER: Job Post (full page OR side panel) ──
+async function scrapeJob() {
+  console.log("[UT] Scraping job post...");
+  const job = await scrapeJobData();
   if (job.title) {
     sendToBackground("SCRAPED_JOB", job);
+    evaluateAndShowCriteria(job).catch(() => {});
   } else {
     console.log("[UT] No job title found");
   }
@@ -575,7 +873,7 @@ async function scrapeProposals() {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
-      const sectionMatch = line.match(/^(Offers?|Invites?\s*from\s*clients?|Active\s*proposals?|Submitted\s*proposals?|Archived\s*proposals?|Archived\s*interviews?)\s*\(\d+\)/i);
+      const sectionMatch = line.match(/^(Offers?|Invites?\s*from\s*clients?|Active\s*proposals?|Submitted\s*proposals?)\s*\(\d+\)/i);
       if (sectionMatch) {
         const raw = sectionMatch[1].trim().toLowerCase().replace(/\s+/g, " ");
         const canonicalMap = {
@@ -588,10 +886,6 @@ async function scrapeProposals() {
           "active proposal": "Active proposals",
           "submitted proposals": "Submitted proposals",
           "submitted proposal": "Submitted proposals",
-          "archived proposals": "Archived proposals",
-          "archived proposal": "Archived proposals",
-          "archived interviews": "Archived interviews",
-          "archived interview": "Archived interviews",
         };
         currentSection = canonicalMap[raw] || sectionMatch[1].trim();
         continue;
@@ -780,7 +1074,7 @@ async function scrapeProposalDetail() {
   const isInterview = /\/proposals\/interview\/uid\//.test(proposal.detailUrl);
 
   if (isInterview) {
-    proposal.section = "Archived interviews";
+    proposal.section = "Invites from clients";
     const heading = (document.querySelector("h1, h2")?.textContent || "").trim().toLowerCase();
     if (/declined\s+invitation/.test(heading)) proposal.status = "Declined by You";
     else if (/accepted\s+invitation/.test(heading)) proposal.status = "Accepted";
@@ -1146,6 +1440,7 @@ async function scrapeProposalDetail() {
 // ── SCRAPER: Apply page (/nx/proposals/job/~.../apply) ──
 // Binds a click-capture listener on the "Submit a Proposal" button and
 // snapshots the form fields the moment the user commits to submit.
+let manuallySavedApplyUrl = null;
 let applyListenerBound = false;
 function watchApplyPage() {
   if (applyListenerBound) return;
@@ -1187,6 +1482,10 @@ function watchApplyPage() {
 
       if (!window.location.href.includes("/apply")) {
         clearInterval(timer);
+        if (manuallySavedApplyUrl === pending.detailUrl) {
+          console.log("[UT] Auto-submit skipped — already saved manually.");
+          return;
+        }
         console.log("[UT] Submission confirmed by URL change; sending.");
         sendToBackground("SCRAPED_APPLY_SUBMIT", pending);
         return;
@@ -1226,20 +1525,74 @@ function scrapeApplySubmission() {
   const bodyText = document.body.innerText;
 
   // Title — try multiple strategies, in order of reliability:
-  // 1. document.title (browser tab usually carries the job title)
-  const tabTitle = (document.title || "").replace(/\s+/g, " ").trim();
-  const tabMatch = tabTitle.match(/^(.+?)\s*[-–—]\s*Upwork/i) ||
-    tabTitle.match(/^(.+?)\s*[-–—]\s*(Apply|Submit)/i);
-  if (tabMatch) {
-    const t = tabMatch[1].trim();
-    if (t.length > 5 && t.length < 200 && !isBadTitle(t) && !/^(apply|submit|send)/i.test(t)) {
+  // 1a. The Upwork apply page wraps the title in:
+  //       <div class="air3-card"> ← the card
+  //         <header><h2>Job details</h2></header>
+  //         <section class="air3-card-section">
+  //           <h3>{TITLE}</h3>
+  //     Find the card whose header reads "Job details", take its first <h3>.
+  if (!submission.title) {
+    const cards = Array.from(
+      document.querySelectorAll('[class*="air3-card"], .air3-card'),
+    );
+    for (const card of cards) {
+      const headerEl = card.querySelector("header h2, header h3, header h4, h2, h3, h4");
+      if (!headerEl) continue;
+      const headerText = (headerEl.textContent || "").replace(/\s+/g, " ").trim();
+      if (!/^job\s*details$/i.test(headerText)) continue;
+      const titleEl = Array.from(card.querySelectorAll("h3")).find((h) => {
+        const t = (h.textContent || "").replace(/\s+/g, " ").trim();
+        return t && !/^job\s*details$/i.test(t);
+      });
+      if (!titleEl) continue;
+      const t = (titleEl.textContent || "").replace(/\s+/g, " ").trim();
+      if (t.length < 5 || t.length > 200) continue;
+      if (isBadTitle(t)) continue;
       submission.title = t;
+      console.log("[UT] Title resolved via strategy 1a →", t);
+      break;
     }
   }
 
-  // 2. First heading that isn't a section label
+  // 1b. Fallback: the heading directly below the "Job details" heading.
   if (!submission.title) {
-    const sectionLabels = /^(submit|apply|send|cover letter|additional details|profile highlights|boost your proposal|about the client|job details|skills and expertise|your bid|your proposed terms|rate|how often|how much|describe your|summary|proposals?)$/i;
+    const allHeadings = Array.from(
+      document.querySelectorAll("h1, h2, h3, h4, [role='heading']"),
+    );
+    const jobDetailsIdx = allHeadings.findIndex((h) =>
+      /^job\s*details$/i.test((h.textContent || "").trim()),
+    );
+    if (jobDetailsIdx >= 0) {
+      const sectionLabels = /^(submit|apply|send|cover letter|additional details|profile highlights|boost your proposal|about the client|job details|skills and expertise|your bid|your proposed terms|terms|rate|how often|how much|describe your|summary|proposals?|bid|client|messages|edit proposal|withdraw|view job posting|what is the rate|what is your|reactivate freelancer|hourly rate|fixed price|profile|insights)/i;
+      for (let i = jobDetailsIdx + 1; i < allHeadings.length; i++) {
+        const t = (allHeadings[i].textContent || "").replace(/\s+/g, " ").trim();
+        if (t.length < 5 || t.length > 200) continue;
+        if (isBadTitle(t)) continue;
+        if (sectionLabels.test(t)) continue;
+        submission.title = t;
+        console.log("[UT] Title resolved via strategy 1b →", t);
+        break;
+      }
+    }
+  }
+
+  // 2. document.title (browser tab usually carries the job title)
+  if (!submission.title) {
+    const tabTitle = (document.title || "").replace(/\s+/g, " ").trim();
+    const tabMatch = tabTitle.match(/^(.+?)\s*[-–—]\s*Upwork/i) ||
+      tabTitle.match(/^(.+?)\s*[-–—]\s*(Apply|Submit)/i);
+    if (tabMatch) {
+      const t = tabMatch[1].trim();
+      if (t.length > 5 && t.length < 200 && !isBadTitle(t) && !/^(apply|submit|send)/i.test(t)) {
+        submission.title = t;
+        console.log("[UT] Title resolved via strategy 2 (tab) →", t);
+      }
+    }
+  }
+
+  // 3. First heading that isn't a section label (fallback)
+  if (!submission.title) {
+    const sectionLabels = /^(submit|apply|send|cover letter|additional details|profile highlights|boost your proposal|about the client|job details|skills and expertise|your bid|your proposed terms|terms|rate|how often|how much|describe your|summary|proposals?|bid|client|messages|edit proposal|withdraw|view job posting|what is the rate|what is your|reactivate freelancer|hourly rate|fixed price|profile|insights)/i;
     const headings = Array.from(document.querySelectorAll("h1, h2, h3"));
     for (const h of headings) {
       const t = (h.textContent || "").trim();
@@ -1247,6 +1600,7 @@ function scrapeApplySubmission() {
       if (isBadTitle(t)) continue;
       if (sectionLabels.test(t)) continue;
       submission.title = t;
+      console.log("[UT] Title resolved via strategy 3 →", t);
       break;
     }
   }
@@ -1297,9 +1651,19 @@ function scrapeApplySubmission() {
       }
     }
 
-    coverParts.push(labelText ? `${labelText}:\n${v}` : v);
+    coverParts.push({ label: labelText, value: v });
   }
-  if (coverParts.length > 0) submission.coverLetter = coverParts.join("\n\n");
+  if (coverParts.length === 1) {
+    submission.coverLetter = coverParts[0].value;
+  } else if (coverParts.length > 1) {
+    submission.coverLetter = coverParts
+      .map((p) =>
+        p.label && !/^cover\s*letter$/i.test(p.label)
+          ? `${p.label}:\n${p.value}`
+          : p.value,
+      )
+      .join("\n\n");
+  }
 
   // Proposed rate: number input near "hourly rate" label, or any $-prefixed input
   const rateInputs = Array.from(document.querySelectorAll('input[type="number"], input[type="text"]'))
@@ -1384,6 +1748,8 @@ function scrapeApplySubmission() {
       if (/^(Intermediate|Expert|Entry[\s-]?level)$/i.test(trimmed)) return false;
       if (/^(Hourly|Fixed-price|Less than|More than)$/i.test(trimmed)) return false;
       if (/^\d+\s*to\s*\d+\s*months?$/i.test(trimmed)) return false;
+      if (/^(less|more|show\s+less|show\s+more|read\s+less|read\s+more)$/i.test(trimmed)) return false;
+      if (/^more\s*\/\s*less\s+about/i.test(trimmed)) return false;
       return true;
     });
     if (descLines.length > 1 && submission.title && descLines[0].includes(submission.title)) {
@@ -1393,14 +1759,31 @@ function scrapeApplySubmission() {
       descLines.shift();
     }
     desc = descLines.join("\n").trim().replace(/\n{3,}/g, "\n\n");
+    desc = desc
+      .replace(/\s*more\s*\/\s*less\s+about\s*\S*\s*$/i, "")
+      .replace(/\s*\b(show|read)\s+(less|more)\b\s*$/i, "")
+      .replace(/\s+\b(less|more)\b\s*$/i, "")
+      .trim();
     if (desc.length > 10) submission.jobDescription = desc;
   }
 
   // ── Skills ──
-  const skillEls = document.querySelectorAll('.air3-badge, [class*="skill-badge"], [data-test="skill"], .up-skill-badge, [class*="air3-token"]');
+  // Prefer Upwork's official skill markers; fall back to generic badges.
+  let skillEls = document.querySelectorAll('[data-qa-skill-key], [data-qa-skill-uid]');
+  if (skillEls.length === 0) {
+    skillEls = document.querySelectorAll('.air3-badge, [class*="skill-badge"], [data-test="skill"], .up-skill-badge, [class*="air3-token"]');
+  }
   const badgeSkills = Array.from(skillEls)
-    .map((el) => el.textContent.trim())
-    .filter((s) => s.length > 1 && s.length < 50 && !/^(Boosted|Boost outbid|General|Specialized|New)$/i.test(s));
+    .map((el) => el.textContent.replace(/\s+/g, " ").trim())
+    .filter((s) =>
+      s.length > 1 &&
+      s.length < 50 &&
+      !/^(Boosted|Boost outbid|General|Specialized|New)$/i.test(s) &&
+      !/connects?\b/i.test(s) &&
+      !/\bbalance\b/i.test(s) &&
+      !/\bremaining\b/i.test(s) &&
+      !/^\$?\d+(\.\d+)?$/.test(s),
+    );
   if (badgeSkills.length > 0) {
     submission.jobSkills = [...new Set(badgeSkills)].slice(0, 30);
   }
@@ -1557,6 +1940,8 @@ function isJobPanelOpen() {
 
 // Track which job URLs we already scraped in this session to avoid duplicates
 const scrapedJobUrls = new Set();
+// Track the last job URL shown in the criteria panel (separate from scrape dedup)
+let lastJobPanelUrl = null;
 
 // ── Always try to identify the user on ANY page ──
 function identifyUser() {
@@ -1901,6 +2286,201 @@ function injectAnalysisPanel() {
   });
 }
 
+let inlineSaveButtonInjected = false;
+let inlineSaveObserver = null;
+let submitBlockObserver = null;
+
+function expandJobDescriptionOnly() {
+  let container = document.querySelector(
+    '[data-test="job-description"], [data-test="JobDescription"], [data-test="JobDetails"], [class*="job-description"], [class*="JobDescription"], [class*="job-details"]',
+  );
+  if (!container) {
+    const headings = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6, [role='heading']"));
+    const heading = headings.find((h) => /^job\s*details$/i.test((h.textContent || "").trim()));
+    if (heading) {
+      container =
+        heading.closest("section, [class*='section'], [class*='card'], [class*='panel']") ||
+        heading.parentElement;
+    }
+  }
+  if (!container) return false;
+
+  const triggers = Array.from(container.querySelectorAll('*'));
+  let clicked = 0;
+  for (const t of triggers) {
+    if (t.children.length > 0) continue;
+    const text = (t.textContent || "").replace(/\s+/g, " ").trim();
+    if (!/^(learn more|read more|see more|show more|more)$/i.test(text)) continue;
+    if (t.tagName === "A") {
+      const href = t.getAttribute("href");
+      if (href && !/^#?$|^javascript:/i.test(href)) continue;
+    }
+    try { t.click(); clicked++; } catch {}
+  }
+  return clicked > 0;
+}
+
+const submitRe = /send\s+for\s+\d+\+?\s*connects?|submit(\s+a)?\s+proposal|send\s+proposal/i;
+
+function injectInlineSaveButton() {
+  if (inlineSaveButtonInjected) return;
+  expandJobDescriptionOnly();
+
+  const tryInject = () => {
+    if (document.getElementById("ut-inline-save")) {
+      inlineSaveButtonInjected = true;
+      return true;
+    }
+    const submit = Array.from(document.querySelectorAll('button, [role="button"]')).find((b) => {
+      const t = (b.textContent || "").replace(/\s+/g, " ").trim();
+      return submitRe.test(t);
+    });
+    if (!submit || !submit.parentElement) return false;
+
+    // Disable submit until tracker save succeeds — keep re-disabling if React overrides it
+    submit.disabled = true;
+    submit.dataset.utBlocked = "1";
+    submitBlockObserver = new MutationObserver(() => {
+      if (submit.dataset.utBlocked && !submit.disabled) submit.disabled = true;
+    });
+    submitBlockObserver.observe(submit, { attributes: true, attributeFilter: ["disabled"] });
+
+    const wrap = document.createElement("span");
+    wrap.id = "ut-inline-save-wrap";
+    wrap.style.cssText = "display:inline-flex;align-items:center;gap:12px;margin-left:12px;vertical-align:middle;";
+
+    const btn = document.createElement("button");
+    btn.id = "ut-inline-save";
+    btn.type = "button";
+    btn.textContent = "Save to Tracker";
+    btn.style.cssText = [
+      "padding:11.7px 18px",
+      "background:#0e1925",
+      "color:#fff",
+      "border:0",
+      "border-radius:999px",
+      "font-weight:600",
+      "cursor:pointer",
+      "font-size:14px",
+      "font-family:inherit",
+      "line-height:1.2",
+    ].join(";");
+
+    const status = document.createElement("span");
+    status.id = "ut-inline-save-status";
+    status.style.cssText = "font-size:12px;color:#5e6d7e;font-family:inherit;";
+    status.textContent = "Save to Tracker before submitting";
+
+    btn.addEventListener("click", () => saveApplyToTrackerInline(btn, status));
+
+    wrap.appendChild(btn);
+    wrap.appendChild(status);
+    submit.parentElement.insertBefore(wrap, submit.nextSibling);
+    inlineSaveButtonInjected = true;
+    return true;
+  };
+
+  if (tryInject()) return;
+
+  inlineSaveObserver = new MutationObserver(() => {
+    if (tryInject() && inlineSaveObserver) {
+      inlineSaveObserver.disconnect();
+      inlineSaveObserver = null;
+    }
+  });
+  inlineSaveObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+function showSaveOverlay() {
+  if (document.getElementById("ut-save-overlay")) return;
+  const overlay = document.createElement("div");
+  overlay.id = "ut-save-overlay";
+  overlay.style.cssText = [
+    "position:fixed", "top:0", "left:0", "right:0", "bottom:0",
+    "background:rgba(14,25,37,0.55)",
+    "z-index:2147483647",
+    "display:flex", "align-items:center", "justify-content:center",
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+    "color:#fff",
+    "cursor:wait",
+  ].join(";");
+  overlay.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;gap:16px;">
+      <div style="width:48px;height:48px;border:4px solid rgba(255,255,255,0.25);border-top-color:#fff;border-radius:50%;animation:ut-save-spin 0.8s linear infinite;"></div>
+      <div style="font-weight:600;font-size:16px;">Saving proposal…</div>
+    </div>
+    <style>@keyframes ut-save-spin { to { transform: rotate(360deg); } }</style>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function hideSaveOverlay() {
+  const o = document.getElementById("ut-save-overlay");
+  if (o) o.remove();
+}
+
+async function saveApplyToTrackerInline(btn, status) {
+  status.style.color = "#5e6d7e";
+  status.textContent = "Saving…";
+  showSaveOverlay();
+
+  if (expandJobDescriptionOnly()) {
+    await new Promise((r) => setTimeout(r, 300));
+  }
+
+  let pending;
+  try {
+    pending = scrapeApplySubmission();
+  } catch (e) {
+    status.style.color = "#c0392b";
+    status.textContent = "Could not read proposal";
+    hideSaveOverlay();
+    return;
+  }
+  if (!pending) {
+    status.style.color = "#c0392b";
+    status.textContent = "No proposal data found";
+    hideSaveOverlay();
+    return;
+  }
+  if (!pending.coverLetter) {
+    status.style.color = "#c0392b";
+    status.textContent = "Cover letter empty";
+    hideSaveOverlay();
+    return;
+  }
+
+  manuallySavedApplyUrl = pending.detailUrl;
+  btn.disabled = true;
+  btn.style.opacity = "0.6";
+  chrome.runtime.sendMessage(
+    { type: "SCRAPED_APPLY_SUBMIT", payload: pending },
+    (res) => {
+      hideSaveOverlay();
+      if (chrome.runtime.lastError || (res && res.ok === false)) {
+        status.style.color = "#c0392b";
+        status.textContent = "Save failed";
+        btn.disabled = false;
+        btn.style.opacity = "1";
+        manuallySavedApplyUrl = null;
+        return;
+      }
+      status.style.color = "#108a00";
+      status.textContent = "Saved ✓";
+      // Unblock the submit button
+      submitBlockObserver?.disconnect();
+      submitBlockObserver = null;
+      const submitBtn = Array.from(document.querySelectorAll('button, [role="button"]')).find((b) =>
+        submitRe.test((b.textContent || "").replace(/\s+/g, " ").trim())
+      );
+      if (submitBtn && submitBtn.dataset.utBlocked) {
+        delete submitBtn.dataset.utBlocked;
+        submitBtn.disabled = false;
+      }
+    },
+  );
+}
+
 function runAnalysis(panel) {
   const status = panel.querySelector("#ut-status");
   const results = panel.querySelector("#ut-results");
@@ -2021,6 +2601,7 @@ function detectPageAndScrape() {
   if (url.match(/\/proposals\/job\/~[^/]+\/apply/)) {
     watchApplyPage();
     // injectAnalysisPanel();
+    injectInlineSaveButton();
     return;
   }
 
@@ -2039,7 +2620,8 @@ function detectPageAndScrape() {
     // Also check if a job detail panel is open on the feed page
     if (isJobPanelOpen()) {
       const jobUrl = findJobUrl(findJobContainer());
-      if (jobUrl && !scrapedJobUrls.has(jobUrl)) {
+      if (jobUrl && jobUrl !== lastJobPanelUrl) {
+        lastJobPanelUrl = jobUrl;
         scrapedJobUrls.add(jobUrl);
         scrapeJob();
       }
@@ -2053,20 +2635,41 @@ function watchForJobPanel() {
   if (panelObserverStarted) return;
   panelObserverStarted = true;
 
-  // Watch for DOM changes that indicate a job panel opened
+  // Watch for DOM changes that indicate a job panel opened or closed
   const observer = new MutationObserver(() => {
-    if (isJobPanelOpen()) {
-      const jobUrl = findJobUrl(findJobContainer());
-      if (jobUrl && !scrapedJobUrls.has(jobUrl)) {
-        console.log("[UT] Job panel detected, scraping:", jobUrl);
-        scrapedJobUrls.add(jobUrl);
-        // Delay to let panel content fully load
-        setTimeout(() => scrapeJob(), 2000);
+    if (!isContextValid()) { observer.disconnect(); return; }
+    try {
+      if (isJobPanelOpen()) {
+        const jobUrl = findJobUrl(findJobContainer());
+        if (jobUrl && jobUrl !== lastJobPanelUrl) {
+          console.log("[UT] Job panel detected, scraping:", jobUrl);
+          lastJobPanelUrl = jobUrl;
+          scrapedJobUrls.add(jobUrl);
+          setTimeout(() => {
+            try { scrapeJob(); }
+            catch (e) { console.error("[UT] scrapeJob threw:", e); }
+          }, 3500);
+        }
+      } else if (lastJobPanelUrl !== null) {
+        lastJobPanelUrl = null;
+        document.getElementById("ut-criteria-panel")?.remove();
       }
+    } catch (e) {
+      console.error("[UT] panel observer threw:", e);
     }
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // Safety net: panel may close mid-animation so the observer misses the transition.
+  // Poll every 800 ms and remove the criteria panel if no job panel is open.
+  setInterval(() => {
+    if (!isContextValid()) return;
+    if (document.getElementById("ut-criteria-panel") && !isJobPanelOpen()) {
+      lastJobPanelUrl = null;
+      document.getElementById("ut-criteria-panel")?.remove();
+    }
+  }, 800);
 }
 
 // ── Watch for filter changes on stats page ──
@@ -2081,15 +2684,20 @@ function watchForStatsChanges() {
   let lastStatsText = document.body.innerText.slice(0, 2000);
 
   const observer = new MutationObserver(() => {
-    const currentText = document.body.innerText.slice(0, 2000);
-    if (currentText !== lastStatsText) {
-      lastStatsText = currentText;
-      // Debounce — wait for changes to settle before re-scraping
-      clearTimeout(statsDebounceTimer);
-      statsDebounceTimer = setTimeout(() => {
-        console.log("[UT] Stats page content changed, re-scraping...");
-        scrapeStats();
-      }, 2000);
+    try {
+      const currentText = document.body.innerText.slice(0, 2000);
+      if (currentText !== lastStatsText) {
+        lastStatsText = currentText;
+        clearTimeout(statsDebounceTimer);
+        statsDebounceTimer = setTimeout(() => {
+          try {
+            console.log("[UT] Stats page content changed, re-scraping...");
+            scrapeStats();
+          } catch (e) { console.error("[UT] scrapeStats threw:", e); }
+        }, 2000);
+      }
+    } catch (e) {
+      console.error("[UT] stats observer threw:", e);
     }
   });
 
@@ -2108,14 +2716,20 @@ function watchForProposalPageChanges() {
   lastProposalPageText = document.body.innerText.slice(0, 2000);
 
   const observer = new MutationObserver(() => {
-    const currentText = document.body.innerText.slice(0, 2000);
-    if (currentText !== lastProposalPageText) {
-      lastProposalPageText = currentText;
-      clearTimeout(proposalDebounceTimer);
-      proposalDebounceTimer = setTimeout(() => {
-        console.log("[UT] Proposals page content changed, re-scraping...");
-        scrapeProposals();
-      }, 2000);
+    try {
+      const currentText = document.body.innerText.slice(0, 2000);
+      if (currentText !== lastProposalPageText) {
+        lastProposalPageText = currentText;
+        clearTimeout(proposalDebounceTimer);
+        proposalDebounceTimer = setTimeout(() => {
+          try {
+            console.log("[UT] Proposals page content changed, re-scraping...");
+            scrapeProposals();
+          } catch (e) { console.error("[UT] scrapeProposals threw:", e); }
+        }, 2000);
+      }
+    } catch (e) {
+      console.error("[UT] proposals observer threw:", e);
     }
   });
 
@@ -2134,37 +2748,53 @@ function watchForNewMessages() {
   lastMessagePageText = document.body.innerText.slice(0, 3000);
 
   const observer = new MutationObserver(() => {
-    const currentText = document.body.innerText.slice(0, 3000);
-    if (currentText !== lastMessagePageText) {
-      lastMessagePageText = currentText;
-      clearTimeout(messageDebounceTimer);
-      messageDebounceTimer = setTimeout(() => {
-        console.log("[UT] Messages page content changed, re-scraping...");
-        scrapeMessages();
-      }, 2000);
+    try {
+      const currentText = document.body.innerText.slice(0, 3000);
+      if (currentText !== lastMessagePageText) {
+        lastMessagePageText = currentText;
+        clearTimeout(messageDebounceTimer);
+        messageDebounceTimer = setTimeout(() => {
+          try {
+            console.log("[UT] Messages page content changed, re-scraping...");
+            scrapeMessages();
+          } catch (e) { console.error("[UT] scrapeMessages threw:", e); }
+        }, 2000);
+      }
+    } catch (e) {
+      console.error("[UT] messages observer threw:", e);
     }
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
+// ── Guard against invalidated extension context (e.g. after extension reload) ──
+function isContextValid() {
+  try { return !!chrome.runtime?.id; } catch (_) { return false; }
+}
+
 // ── Run with delay for DOM to settle ──
 function runWithDelay(delayMs = 3000) {
   setTimeout(() => {
-    detectPageAndScrape();
-    // Start watching for job panel clicks on feed pages
+    if (!isContextValid()) return;
+    try { detectPageAndScrape(); }
+    catch (e) { console.error("[UT] detectPageAndScrape threw:", e); }
     const url = window.location.href;
-    if (url.includes("/nx/find-work") || url.includes("/search/jobs") || url.includes("/ab/find-work")) {
-      watchForJobPanel();
-    }
-    if (url.includes("/nx/my-stats") || url.includes("/my-stats")) {
-      watchForStatsChanges();
-    }
-    if (url.includes("/nx/proposals") && !url.match(/\/nx\/proposals\/\d+/)) {
-      watchForProposalPageChanges();
-    }
-    if (url.includes("/nx/messages") || url.includes("/ab/messages")) {
-      watchForNewMessages();
+    try {
+      if (url.includes("/nx/find-work") || url.includes("/search/jobs") || url.includes("/ab/find-work")) {
+        watchForJobPanel();
+      }
+      if (url.includes("/nx/my-stats") || url.includes("/my-stats")) {
+        watchForStatsChanges();
+      }
+      if (url.includes("/nx/proposals") && !url.match(/\/nx\/proposals\/\d+/)) {
+        watchForProposalPageChanges();
+      }
+      if (url.includes("/nx/messages") || url.includes("/ab/messages")) {
+        watchForNewMessages();
+      }
+    } catch (e) {
+      console.error("[UT] watcher setup threw:", e);
     }
   }, delayMs);
 }
@@ -2188,11 +2818,18 @@ if (document.readyState === "loading") {
 // ── Detect SPA navigation ──
 let lastUrl = window.location.href;
 const navObserver = new MutationObserver(() => {
-  if (window.location.href !== lastUrl) {
-    console.log("[UT] SPA navigation:", window.location.href);
-    lastUrl = window.location.href;
-    maybeWatchApplyPage(window.location.href);
-    runWithDelay(2000);
+  if (!isContextValid()) { navObserver.disconnect(); return; }
+  try {
+    if (window.location.href !== lastUrl) {
+      console.log("[UT] SPA navigation:", window.location.href);
+      lastUrl = window.location.href;
+      lastJobPanelUrl = null;
+      document.getElementById("ut-criteria-panel")?.remove();
+      maybeWatchApplyPage(window.location.href);
+      runWithDelay(2000);
+    }
+  } catch (e) {
+    console.error("[UT] navObserver threw:", e);
   }
 });
 if (document.body) {
@@ -2210,6 +2847,20 @@ window.addEventListener("popstate", () => {
 });
 
 console.log("[UT] Content script ready — active scraping enabled");
+
+window.addEventListener("error", (ev) => {
+  console.error("[UT] uncaught error:", ev?.message, ev?.error);
+});
+window.addEventListener("unhandledrejection", (ev) => {
+  console.error("[UT] unhandled rejection:", ev?.reason);
+});
+
+function safe(fn, name) {
+  return (...args) => {
+    try { return fn(...args); }
+    catch (e) { console.error(`[UT] ${name || fn.name || "fn"} threw:`, e); }
+  };
+}
 
 // ── Coverage modal ──
 function showCoverageModal({ pct, unvisited }) {
@@ -2260,7 +2911,86 @@ function showCoverageModal({ pct, unvisited }) {
 }
 
 chrome.runtime.onMessage.addListener((message) => {
-  if (message.type === "SHOW_COVERAGE_MODAL") {
-    showCoverageModal(message.payload);
+  try {
+    if (message.type === "SHOW_COVERAGE_MODAL") {
+      showCoverageModal(message.payload);
+    } else if (message.type === "SHOW_NUDGE_SUMMARY") {
+      renderNudgeSummaryToast(message.payload || {});
+    }
+  } catch (e) {
+    console.error("[UT] message handler threw:", e);
   }
 });
+
+function renderNudgeSummaryToast({ count, single, accountName }) {
+  if (!count || count <= 0) return;
+
+  const escapeHtml = (s) =>
+    String(s).replace(/[<>&"']/g, (c) => (
+      { "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" }[c]
+    ));
+
+  const safeId = "ut-nudge-summary-" + (accountName || "default").replace(/[^a-z0-9]/gi, "-").toLowerCase();
+  const existing = document.getElementById(safeId);
+  if (existing) existing.remove();
+
+  // Stack below any other open nudge toasts
+  const existingToasts = document.querySelectorAll('[id^="ut-nudge-summary-"]');
+  const topOffset = 20 + existingToasts.length * 195;
+
+  const t = document.createElement("div");
+  t.id = safeId;
+  t.style.cssText = [
+    "position:fixed", `top:${topOffset}px`, "right:20px", "width:340px",
+    "background:#fff7ed", "border:1px solid #fdba74", "border-radius:12px",
+    "padding:14px 16px",
+    "box-shadow:0 10px 30px rgba(0,0,0,0.15)",
+    "z-index:2147483647",
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+  ].join(";");
+
+  const safeAccount = accountName ? escapeHtml(accountName) : null;
+  let bodyHtml;
+  let primaryUrl;
+
+  if (count === 1 && single?.jobTitle) {
+    const safeTitle = escapeHtml(single.jobTitle);
+    bodyHtml = `
+      <div style="color:#9a3412;font-size:11px;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Unscanned proposal${safeAccount ? ` · ${safeAccount}` : ""}</div>
+      <div style="color:#1c1917;font-size:14px;font-weight:600;margin-bottom:6px;line-height:1.35;">${safeTitle}</div>
+      <div style="color:#57534e;font-size:12px;margin-bottom:10px;line-height:1.4;">Open it once so the tracker captures the cover letter and job details.</div>
+    `;
+    primaryUrl = single.jobUrl
+      ? (single.jobUrl.startsWith("http") ? single.jobUrl : `https://www.upwork.com${single.jobUrl}`)
+      : "https://www.upwork.com/nx/proposals/";
+  } else {
+    bodyHtml = `
+      <div style="color:#9a3412;font-size:11px;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">${safeAccount ? `${safeAccount} · ` : ""}${count} unscanned proposal${count !== 1 ? "s" : ""}</div>
+      <div style="color:#1c1917;font-size:14px;margin-bottom:10px;line-height:1.4;">
+        Open each one once so the tracker captures the cover letter and job details.
+      </div>
+    `;
+    primaryUrl = "https://www.upwork.com/nx/proposals/";
+  }
+
+  const primaryLabel = count === 1 ? "Open proposal" : "Open Proposals";
+
+  t.innerHTML = `
+    <div style="font-weight:600;color:#9a3412;font-size:13px;margin-bottom:6px;">📌 Scan reminder</div>
+    ${bodyHtml}
+    <div style="display:flex;gap:8px;">
+      <button data-act="open" style="flex:1;background:#ea580c;color:#fff;border:0;border-radius:8px;padding:8px 10px;font-size:13px;font-weight:600;cursor:pointer;">${primaryLabel}</button>
+      <button data-act="dismiss" style="background:transparent;border:1px solid #d6d3d1;border-radius:8px;padding:8px 10px;font-size:13px;color:#57534e;cursor:pointer;">Dismiss</button>
+    </div>
+  `;
+  document.body.appendChild(t);
+
+  t.querySelector('[data-act="open"]').onclick = () => {
+    window.open(primaryUrl, "_blank");
+    chrome.runtime.sendMessage({ type: "ACK_ALL_NUDGES" }, () => {});
+    t.remove();
+  };
+  t.querySelector('[data-act="dismiss"]').onclick = () => {
+    t.remove();
+  };
+}

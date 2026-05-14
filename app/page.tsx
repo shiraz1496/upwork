@@ -5,7 +5,9 @@ import { TeamView } from "@/components/admin/TeamView";
 import { TeamStatsView } from "@/components/admin/TeamStatsView";
 import { CoveragePagesView } from "@/components/admin/CoveragePagesView";
 import { CoverageLeaderboardView } from "@/components/admin/CoverageLeaderboardView";
+import { BiddingCriteriaView } from "@/components/admin/BiddingCriteriaView";
 import { OverviewPanel } from "@/components/OverviewPanel";
+import { FreelancerProfileCard } from "@/components/FreelancerProfileCard";
 import type {
   AccountData,
   SnapshotSummary,
@@ -76,15 +78,16 @@ const IconFile = () => (<svg {...iconProps}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 
 const IconBell = () => (<svg {...iconProps}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>);
 const IconCamera = () => (<svg {...iconProps}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>);
 const IconSend = () => (<svg {...iconProps}><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>);
-const IconArchive = () => (<svg {...iconProps}><polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" /></svg>);
 const IconRefresh = () => (<svg {...iconProps} className="w-4 h-4 shrink-0"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>);
 const IconArrowUp = () => (<svg {...iconProps} className="w-3 h-3 shrink-0"><polyline points="18 15 12 9 6 15" /></svg>);
 const IconArrowDown = () => (<svg {...iconProps} className="w-3 h-3 shrink-0"><polyline points="6 9 12 15 18 9" /></svg>);
 const IconUsers = () => (<svg {...iconProps}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>);
+const IconUser = () => (<svg {...iconProps}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>);
 const IconChart = () => (<svg {...iconProps}><line x1="12" y1="20" x2="12" y2="10" /><line x1="18" y1="20" x2="18" y2="4" /><line x1="6" y1="20" x2="6" y2="16" /></svg>);
 const IconSignOut = () => (<svg {...iconProps}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>);
 const IconCompass = () => (<svg {...iconProps}><circle cx="12" cy="12" r="10" /><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" /></svg>);
 const IconTrophy = () => (<svg {...iconProps}><polyline points="14 9 9 9 9 2 15 2 15 9 10 9" /><path d="M5 9H3a2 2 0 0 0-2 2v1a6 6 0 0 0 6 6h6a6 6 0 0 0 6-6v-1a2 2 0 0 0-2-2h-2" /><line x1="12" y1="18" x2="12" y2="22" /><line x1="8" y1="22" x2="16" y2="22" /></svg>);
+const IconClipboard = () => (<svg {...iconProps}><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" /><rect x="9" y="3" width="6" height="4" rx="1" ry="1" /><line x1="9" y1="12" x2="15" y2="12" /><line x1="9" y1="16" x2="12" y2="16" /></svg>);
 
 function StatCard({ label, value, sub, color, delta }: {
   label: string;
@@ -403,15 +406,16 @@ const ProposalDrawer = React.memo(function ProposalDrawer({ proposal, onClose }:
 
 type Tab =
   | "overview"
+  | "profile"
   | "proposals"
   | "submissions"
   | "alerts"
   | "snapshots"
-  | "archive"
   | "team"
   | "team-stats"
   | "coverage-pages"
-  | "leaderboard";
+  | "leaderboard"
+  | "bidding-criteria";
 
 // Tooltip style constants were moved to OverviewPanel
 
@@ -438,8 +442,11 @@ export default function Dashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [selectedProposal, setSelectedProposal] = useState<ProposalData | null>(null);
+  const [nudgeState, setNudgeState] = useState<Record<string, "loading" | "ok" | "error">>({});
+  const [bulkNudgeState, setBulkNudgeState] = useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [bulkNudgeMessage, setBulkNudgeMessage] = useState<string | null>(null);
   const [proposalFilter, setProposalFilter] = useState<string>("all");
-  const [viewedFilter, setViewedFilter] = useState<"all" | "viewed" | "not_viewed">("all");
+  const [viewedFilter, setViewedFilter] = useState<"all" | "viewed" | "not_viewed" | "unscanned">("all");
   const [overviewRange, setOverviewRange] = useState<OverviewRange>("7d");
   const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string; role: string }[]>([]);
@@ -581,28 +588,11 @@ export default function Dashboard() {
         return proposalsSortAsc ? ta - tb : tb - ta;
       });
     }
-    const ARCHIVE_SECTIONS = ["Archived proposals", "Archived interviews"];
     const order = ["Offers", "Invites from clients", "Active proposals", "Submitted proposals", "Other", "Unknown"];
     return Array.from(sections.entries())
-      .filter(([sec]) => !ARCHIVE_SECTIONS.includes(sec))
+      .filter(([sec]) => !sec.toLowerCase().includes("archived"))
       .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
   }, [allProposals, proposalsSortAsc]);
-
-  const archivedSections = useMemo(() => {
-    const ARCHIVE_SECTIONS = ["Archived proposals", "Archived interviews"];
-    const sections = new Map<string, ProposalData[]>();
-    for (const p of allProposals) {
-      const sec = p.section || "Other";
-      if (!ARCHIVE_SECTIONS.includes(sec)) continue;
-      if (!sections.has(sec)) sections.set(sec, []);
-      sections.get(sec)!.push(p);
-    }
-    for (const [, props] of sections) {
-      props.sort((a, b) => new Date(b.submittedAt || b.createdAt).getTime() - new Date(a.submittedAt || a.createdAt).getTime());
-    }
-    const order = ["Archived proposals", "Archived interviews"];
-    return Array.from(sections.entries()).sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
-  }, [allProposals]);
 
   const filteredProposalSections = useMemo(() => {
     let sections = proposalFilter === "all"
@@ -616,6 +606,7 @@ export default function Dashboard() {
             section,
             props.filter((p) => {
               const isViewed = p.viewedByClient || impliedViewed;
+              if (viewedFilter === "unscanned") return !p.coverLetter;
               return viewedFilter === "viewed" ? isViewed : !isViewed;
             }),
           ] as [string, ProposalData[]];
@@ -732,10 +723,10 @@ export default function Dashboard() {
 
   const TABS: { id: Tab; label: string; count?: number; icon: React.ReactNode }[] = [
     { id: "overview", label: "Overview", icon: <IconHome /> },
+    { id: "profile", label: "Profile", icon: <IconUser /> },
     { id: "proposals", label: "Proposals", count: sortedProposalSections.reduce((s, [, p]) => s + p.length, 0), icon: <IconFile /> },
     { id: "alerts", label: "Alerts", count: unreadAlerts.length, icon: <IconBell /> },
     { id: "submissions", label: "Submissions", count: submissions.length, icon: <IconSend /> },
-    { id: "archive", label: "Archive", count: archivedSections.reduce((s, [, p]) => s + p.length, 0), icon: <IconArchive /> },
     // { id: "snapshots", label: "Snapshots", count: filteredSnapshots.length, icon: <IconCamera /> },
   ];
 
@@ -756,6 +747,7 @@ export default function Dashboard() {
     { id: "team-stats", label: "Team Stats", icon: <IconChart /> },
     { id: "leaderboard", label: "Leaderboard", icon: <IconTrophy /> },
     { id: "coverage-pages", label: "Coverage Pages", icon: <IconCompass /> },
+    { id: "bidding-criteria", label: "Bid Criteria", icon: <IconClipboard /> },
   ];
 
   const activeTabLabel =
@@ -769,26 +761,51 @@ export default function Dashboard() {
     );
     const viewed = allProposals.filter((p) => p.viewedByClient).length;
     const notViewed = allProposals.length - viewed;
+    const accountsInScope = selected ? [selected] : accountsForMember;
+    const profiledAccounts = accountsInScope.filter((a) => a.profile);
 
     const lines = [
-      `You are an Upwork bidding analyst. I am sharing ${allProposals.length} proposals submitted by our team (${viewed} viewed by client, ${notViewed} not viewed).`,
+      `You are an Upwork bidding analyst. I am sharing ${allProposals.length} proposals submitted by our team (${viewed} viewed by client, ${notViewed} not viewed)${profiledAccounts.length > 0 ? ` along with the freelancer profile${profiledAccounts.length > 1 ? "s" : ""} they were sent from` : ""}.`,
       ``,
       `Please analyze this data and give me a detailed breakdown covering:`,
       ``,
       `1. **View rate patterns** — What do the viewed proposals have in common vs the ones that were not viewed? Look at cover letter quality, length, opening lines, and relevance to the job.`,
       `2. **Client quality** — Does the client's hire rate, total spent, payment verification, rating, or country correlate with whether they viewed the proposal?`,
-      `3. **Job & proposal fit** — Are certain job categories, experience levels, or budget ranges getting better view rates? Is the proposed rate competitive?`,
-      `4. **Bidder performance** — Compare view rates by who submitted the proposal (the "Submitted by" field — only set for proposals sent via the extension) and who captured/scanned it (the "Captured by" field). Note: these can be different people. Are certain bidders getting more views than others?`,
-      `5. **Timing** — Do proposals submitted on certain dates or within certain timeframes perform better?`,
-      `6. **Boost impact** — Do boosted proposals get viewed more than organic ones? Is boosting worth it based on this data?`,
-      `7. **Actionable recommendations** — Based on all of the above, give 5 specific, concrete changes the team should make to improve the view rate. Be direct and specific.`,
+      `3. **Job & proposal fit** — Are certain job categories, experience levels, or budget ranges getting better view rates? Is the proposed rate competitive against the freelancer's hourly rate and skill set?`,
+      `4. **Profile fit** — Looking at the freelancer's title, overview, and skills, are we going after jobs that match the profile, or spraying broadly? Where does the profile language need to evolve to match the jobs that get viewed?`,
+      `5. **Bidder performance** — Compare view rates by who submitted the proposal (the "Submitted by" field — only set for proposals sent via the extension) and who captured/scanned it (the "Captured by" field). Note: these can be different people. Are certain bidders getting more views than others?`,
+      `6. **Timing** — Do proposals submitted on certain dates or within certain timeframes perform better?`,
+      `7. **Boost impact** — Do boosted proposals get viewed more than organic ones? Is boosting worth it based on this data?`,
+      `8. **Actionable recommendations** — Based on all of the above, give 5 specific, concrete changes the team should make to improve the view rate. Tie at least 2 of them to the freelancer profile (overview, skills, title) so the changes are tailored to who is bidding.`,
       ``,
       `Format your response with clear headings for each section. Where possible, include numbers and percentages from the data to back up your conclusions.`,
       ``,
+    ];
+
+    if (profiledAccounts.length > 0) {
+      lines.push(`=== FREELANCER PROFILE${profiledAccounts.length > 1 ? "S" : ""} ===`, ``);
+      profiledAccounts.forEach((a, i) => {
+        const p = a.profile!;
+        if (profiledAccounts.length > 1) lines.push(`--- Profile ${i + 1} ---`);
+        lines.push(`Name: ${a.name}`);
+        if (p.title) lines.push(`Title: ${p.title}`);
+        if (p.location) lines.push(`Location: ${p.location}`);
+        if (p.hourlyRate) lines.push(`Hourly rate: ${p.hourlyRate}`);
+        if (p.totalEarnings) lines.push(`Total earnings: $${p.totalEarnings.replace(/^\$/, "")}`);
+        if (p.totalJobs != null) lines.push(`Total jobs: ${p.totalJobs}`);
+        if (p.totalHours != null) lines.push(`Total hours: ${p.totalHours}`);
+        if (a.jss != null) lines.push(`Job Success Score: ${a.jss}%`);
+        if (p.skills?.length) lines.push(`Skills: ${p.skills.join(", ")}`);
+        if (p.overview) lines.push(`Overview:\n${p.overview}`);
+        lines.push(``);
+      });
+    }
+
+    lines.push(
       `=== PROPOSALS DATA — ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} ===`,
       `Total: ${allProposals.length} | Viewed: ${viewed} | Not viewed: ${notViewed}`,
       ``,
-    ];
+    );
 
     allProposals.forEach((p, i) => {
       lines.push(`--- Proposal ${i + 1} ---`);
@@ -1011,6 +1028,19 @@ export default function Dashboard() {
             );
           })()}
 
+          {/* ── Profile Tab ──────────────────────────────────────────────────── */}
+          {activeTab === "profile" && (
+            <div className="py-6">
+              {selected ? (
+                <FreelancerProfileCard profile={selected.profile} accountName={selected.name} />
+              ) : (
+                <div className="rounded-xl border border-dashed border-gray-300 bg-white p-6 text-sm text-gray-500">
+                  Select an account from the sidebar to view its freelancer profile.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── Proposals Tab ────────────────────────────────────────────────── */}
           {activeTab === "proposals" && (
             <div className="py-6">
@@ -1039,12 +1069,13 @@ export default function Dashboard() {
                   </div>
                   <select
                     value={viewedFilter}
-                    onChange={(e) => setViewedFilter(e.target.value as "all" | "viewed" | "not_viewed")}
+                    onChange={(e) => setViewedFilter(e.target.value as "all" | "viewed" | "not_viewed" | "unscanned")}
                     className="text-xs border border-gray-200 rounded-md px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
                   >
                     <option value="all">All</option>
                     <option value="viewed">Viewed</option>
                     <option value="not_viewed">Not viewed</option>
+                    <option value="unscanned">Unscanned</option>
                   </select>
                   <select
                     value={proposalFilter}
@@ -1058,6 +1089,65 @@ export default function Dashboard() {
                       </option>
                     ))}
                   </select>
+                  {(() => {
+                    const unscannedIds = filteredProposalSections
+                      .flatMap(([, props]) => props)
+                      .filter((p) => !p.coverLetter && p.capturedBy)
+                      .map((p) => p.id);
+                    if (unscannedIds.length === 0) return null;
+                    return (
+                      <button
+                        onClick={() => {
+                          if (bulkNudgeState === "loading") return;
+                          setBulkNudgeState("loading");
+                          setBulkNudgeMessage(null);
+                          fetch("/api/nudges/bulk", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ proposalIds: unscannedIds }),
+                          })
+                            .then((r) => r.json())
+                            .then((res) => {
+                              if (!res.ok) {
+                                setBulkNudgeState("error");
+                                setBulkNudgeMessage(res.error || "Failed");
+                                return;
+                              }
+                              const bidderCount = Object.keys(res.byBidder || {}).length;
+                              setBulkNudgeState("ok");
+                              setBulkNudgeMessage(
+                                `Nudged ${res.created} proposal${res.created === 1 ? "" : "s"}` +
+                                  (bidderCount > 0 ? ` across ${bidderCount} bidder${bidderCount === 1 ? "" : "s"}` : "") +
+                                  (res.deduped ? ` (${res.deduped} skipped — recently nudged)` : ""),
+                              );
+                              setTimeout(() => setBulkNudgeState("idle"), 4000);
+                            })
+                            .catch(() => {
+                              setBulkNudgeState("error");
+                              setBulkNudgeMessage("Network error");
+                            });
+                        }}
+                        disabled={bulkNudgeState === "loading"}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+                          bulkNudgeState === "ok"
+                            ? "bg-green-50 border-green-200 text-green-700"
+                            : bulkNudgeState === "error"
+                            ? "bg-rose-50 border-rose-200 text-rose-700"
+                            : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
+                        }`}
+                        title={bulkNudgeMessage ?? `Nudge ${unscannedIds.length} unscanned proposal${unscannedIds.length === 1 ? "" : "s"}`}
+                      >
+                        📌 
+                        {bulkNudgeState === "loading"
+                          ? " Nudging…"
+                          : bulkNudgeState === "ok"
+                          ? bulkNudgeMessage || "  Nudged ✓"
+                          : bulkNudgeState === "error"
+                          ? bulkNudgeMessage || " Failed"
+                          : ` Nudge all (${unscannedIds.length})`}
+                      </button>
+                    );
+                  })()}
                   <button
                     onClick={openInChatGPT}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
@@ -1090,7 +1180,6 @@ export default function Dashboard() {
               ) : (
                 <div className="flex flex-col gap-6">
                   {filteredProposalSections.map(([section, props]) => {
-                    const isArchived = section.toLowerCase().includes("archived");
                     const isInterview = section.toLowerCase().includes("interview");
                     const sectionImpliesViewed = /active|offers?|interviewing/i.test(section);
                     const unit = isInterview ? "interview" : "proposal";
@@ -1101,46 +1190,7 @@ export default function Dashboard() {
                           <span className="text-xs text-gray-400">{props.length} {unit}{props.length !== 1 ? "s" : ""}</span>
                         </div>
                         <div className="border border-gray-200 rounded-xl overflow-x-auto scrollbar-hide shadow-sm">
-                          {isArchived ? (
-                            <table className="w-full text-sm">
-                              <thead>
-                                <tr className="border-b border-gray-200 bg-gray-50">
-                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">{isInterview ? "Received" : "Initiated"}</th>
-                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Job Title</th>
-                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Status</th>
-                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Profile</th>
-                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Submitted By</th>
-                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Captured By</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {props.map((p) => (
-                                  <tr
-                                    key={p.id}
-                                    onClick={() => setSelectedProposal(p)}
-                                    className="border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors"
-                                  >
-                                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
-                                      {p.submittedAt ? fmtDateTime(p.submittedAt) : fmtDateTime(p.createdAt)}
-                                    </td>
-                                    <td className="px-4 py-3 max-w-md">
-                                      <span className="text-teal-600 font-medium truncate block">{p.jobTitle || "Untitled"}</span>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                      {p.status
-                                        ? <Badge text={p.status} variant="gray" />
-                                        : <span className="text-gray-300 text-xs">—</span>
-                                      }
-                                    </td>
-                                    <td className="px-4 py-3 text-gray-500 text-xs">{p.profileUsed || "—"}</td>
-                                    <td className="px-4 py-3 text-gray-500 text-xs">{p.submittedBy?.name || <span className="italic text-gray-400">—</span>}</td>
-                                    <td className="px-4 py-3 text-gray-500 text-xs">{p.capturedBy?.name || <span className="italic text-gray-400">—</span>}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          ) : (
-                            <table className="w-full text-sm">
+                          <table className="w-full text-sm">
                               <thead>
                                 <tr className="border-b border-gray-200 bg-gray-50">
                                   <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Job Title</th>
@@ -1256,7 +1306,49 @@ export default function Dashboard() {
                                     </td>
                                     <td className="px-4 py-3 text-gray-400 text-xs">{p.profileUsed || "—"}</td>
                                     <td className="px-4 py-3 text-gray-500 text-xs">{p.submittedBy?.name || <span className="italic text-gray-400">—</span>}</td>
-                                    <td className="px-4 py-3 text-gray-500 text-xs">{p.capturedBy?.name || <span className="italic text-gray-400">—</span>}</td>
+                                    <td className="px-4 py-3 text-gray-500 text-xs">
+                                      <div className="flex items-center gap-2">
+                                        <span>{p.capturedBy?.name || <span className="italic text-gray-400">—</span>}</span>
+                                        {!p.coverLetter && p.capturedBy && (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const id = p.id;
+                                              if (nudgeState[id] === "loading" || nudgeState[id] === "ok") return;
+                                              setNudgeState((s) => ({ ...s, [id]: "loading" }));
+                                              fetch("/api/nudges", {
+                                                method: "POST",
+                                                headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({ proposalId: id }),
+                                              })
+                                                .then((r) => r.json())
+                                                .then((res) => {
+                                                  setNudgeState((s) => ({ ...s, [id]: res.ok ? "ok" : "error" }));
+                                                })
+                                                .catch(() => {
+                                                  setNudgeState((s) => ({ ...s, [id]: "error" }));
+                                                });
+                                            }}
+                                            className={`text-[10px] px-2 py-0.5 rounded border font-medium transition-colors ${
+                                              nudgeState[p.id] === "ok"
+                                                ? "bg-green-50 border-green-200 text-green-700"
+                                                : nudgeState[p.id] === "error"
+                                                ? "bg-rose-50 border-rose-200 text-rose-700"
+                                                : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
+                                            }`}
+                                            disabled={nudgeState[p.id] === "loading" || nudgeState[p.id] === "ok"}
+                                          >
+                                            {nudgeState[p.id] === "loading"
+                                              ? "Nudging…"
+                                              : nudgeState[p.id] === "ok"
+                                              ? "Nudged ✓"
+                                              : nudgeState[p.id] === "error"
+                                              ? "Failed"
+                                              : "Nudge"}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
                                     <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
                                       {p.submittedAt ? fmtDateTime(p.submittedAt) : fmtDateTime(p.createdAt)}
                                     </td>
@@ -1264,7 +1356,6 @@ export default function Dashboard() {
                                 ))}
                               </tbody>
                             </table>
-                          )}
                         </div>
                       </div>
                     );
@@ -1310,10 +1401,6 @@ export default function Dashboard() {
                       <div className="flex items-start justify-between gap-4 mb-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-100">
-                              <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
-                              LIVE
-                            </span>
                             <span className="text-[11px] text-gray-400">
                               {fmtDateTime(p.submittedAt || p.createdAt)}
                             </span>
@@ -1485,85 +1572,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ── Archive Tab ──────────────────────────────────────────────────── */}
-          {activeTab === "archive" && (
-            <div className="py-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
-                  Archive
-                  <span className="ml-2 text-gray-400 font-normal normal-case tracking-normal">
-                    ({archivedSections.reduce((s, [, p]) => s + p.length, 0)})
-                  </span>
-                </h2>
-              </div>
-
-              {archivedSections.length === 0 ? (
-                <div className="border border-dashed border-gray-200 rounded-xl py-20 px-6 text-center">
-                  <div className="mx-auto w-12 h-12 rounded-full bg-gray-100 text-gray-400 border border-gray-200 flex items-center justify-center mb-4">
-                    <IconArchive />
-                  </div>
-                  <h3 className="text-sm font-semibold text-gray-700">Archive is empty</h3>
-                  <p className="text-xs text-gray-400 mt-1 max-w-md mx-auto">
-                    Archived proposals and interviews will appear here once they're captured by the extension.
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-6">
-                  {archivedSections.map(([section, props]) => {
-                    const isInterview = section.toLowerCase().includes("interview");
-                    const unit = isInterview ? "interview" : "proposal";
-                    return (
-                      <div key={section}>
-                        <div className="flex items-center gap-3 mb-3">
-                          <Badge text={section} variant={sectionBadgeVariant(section)} />
-                          <span className="text-xs text-gray-400">{props.length} {unit}{props.length !== 1 ? "s" : ""}</span>
-                        </div>
-                        <div className="border border-gray-200 rounded-xl overflow-x-auto scrollbar-hide shadow-sm">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b border-gray-200 bg-gray-50">
-                                <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">{isInterview ? "Received" : "Initiated"}</th>
-                                <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Job Title</th>
-                                <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Status</th>
-                                <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Profile</th>
-                                <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Submitted By</th>
-                                <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Captured By</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {props.map((p) => (
-                                <tr
-                                  key={p.id}
-                                  onClick={() => setSelectedProposal(p)}
-                                  className="border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors"
-                                >
-                                  <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
-                                    {p.submittedAt ? fmtDateTime(p.submittedAt) : fmtDateTime(p.createdAt)}
-                                  </td>
-                                  <td className="px-4 py-3 max-w-md">
-                                    <span className="text-teal-600 font-medium truncate block">{p.jobTitle || "Untitled"}</span>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    {p.status
-                                      ? <Badge text={p.status} variant="gray" />
-                                      : <span className="text-gray-300 text-xs">—</span>
-                                    }
-                                  </td>
-                                  <td className="px-4 py-3 text-gray-500 text-xs">{p.profileUsed || "—"}</td>
-                                  <td className="px-4 py-3 text-gray-500 text-xs">{p.submittedBy?.name || <span className="italic text-gray-400">—</span>}</td>
-                                  <td className="px-4 py-3 text-gray-500 text-xs">{p.capturedBy?.name || <span className="italic text-gray-400">—</span>}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
 
           {/* ── Snapshots Tab ────────────────────────────────────────────────── */}
           {activeTab === "snapshots" && (
@@ -1648,6 +1656,8 @@ export default function Dashboard() {
           {activeTab === "coverage-pages" && <CoveragePagesView />}
           {/* ── Leaderboard Tab ──────────────────────────────────────────────── */}
           {activeTab === "leaderboard" && <CoverageLeaderboardView />}
+          {/* ── Bid Criteria Tab ─────────────────────────────────────────────── */}
+          {activeTab === "bidding-criteria" && <BiddingCriteriaView />}
 
           {/* ── Footer ───────────────────────────────────────────────────────── */}
           <div className="text-center text-xs text-gray-400 border-t border-gray-100 mt-4 py-4">

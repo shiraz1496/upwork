@@ -41,6 +41,9 @@ model TeamMember {
   capturedAlerts    Alert[]
   pageVisits        PageVisit[]
   visitLogs         VisitLog[]
+  capturedProfiles  FreelancerProfile[]
+  nudgesReceived    Nudge[] @relation("NudgeBidder")
+  nudgesCreated     Nudge[] @relation("NudgeCreatedBy")
 }
 
 model ExtensionToken {
@@ -105,6 +108,28 @@ model Account {
   coverageItems   CoverageItem[]
   pageVisits      PageVisit[]
   visitLogs       VisitLog[]
+  profile         FreelancerProfile?
+}
+
+model FreelancerProfile {
+  id                  String   @id @default(cuid())
+  accountId           String   @unique
+  account             Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  title               String?
+  photoUrl            String?
+  location            String?
+  hourlyRate          String?
+  totalEarnings       String?
+  totalJobs           Int?
+  totalHours          Int?
+  overview            String?  @db.Text
+  skills              String[]
+  capturedAt          DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  capturedByUserId    String?
+  capturedByUser      TeamMember? @relation(fields: [capturedByUserId], references: [id])
+
+  @@index([capturedByUserId])
 }
 
 model Alert {
@@ -224,10 +249,38 @@ model Proposal {
   submittedByUser    TeamMember? @relation("ProposalSubmittedBy", fields: [submittedByUserId], references: [id])
 
   coachingNotes CoachingNote[]
+  nudges        Nudge[]
 
   @@index([accountId])
   @@index([capturedByUserId])
   @@index([submittedByUserId])
+}
+
+model Nudge {
+  id          String     @id @default(cuid())
+  bidderId    String
+  bidder      TeamMember @relation("NudgeBidder", fields: [bidderId], references: [id])
+  proposalId  String
+  proposal    Proposal   @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   TeamMember @relation("NudgeCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime   @default(now())
+  deliveredAt DateTime?
+
+  @@index([bidderId, deliveredAt])
+  @@index([proposalId])
+}
+
+model BiddingCriterion {
+  id        String   @id @default(cuid())
+  key       String   // e.g. "client_total_spent", "client_rating"
+  operator  String   @default("gte") // "gte", "lte", "eq"
+  value     String   // threshold value e.g. "1000"
+  required  Boolean  @default(true)
+  active    Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model RequiredPage {
