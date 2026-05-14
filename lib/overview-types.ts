@@ -105,6 +105,8 @@ export interface AccountData {
   name: string;
   jss: number | null;
   connectsBalance: number | null;
+  isDisabled: boolean;
+  disabledReason: string | null;
   createdAt: string;
   latestSnapshot: {
     capturedAt: string;

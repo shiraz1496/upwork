@@ -31,6 +31,12 @@ export type Deltas = {
   hired: number | null;
 } | null;
 
+export type PeriodComparison = {
+  cur: { sent: number; viewed: number; interviewed: number; hired: number };
+  prev: { sent: number; viewed: number; interviewed: number; hired: number };
+  delta: { sent: number | null; viewed: number | null; interviewed: number | null; hired: number | null };
+} | null;
+
 export type TimeSeriesRow = {
   date: string;
   sent: number;
@@ -160,6 +166,39 @@ export function computeDeltas(accounts: AccountData[], range: OverviewRange): De
   };
 }
 
+export function computePeriodComparison(accounts: AccountData[], range: OverviewRange): PeriodComparison {
+  const cur = { sent: 0, viewed: 0, interviewed: 0, hired: 0 };
+  const prev = { sent: 0, viewed: 0, interviewed: 0, hired: 0 };
+  let anyPrev = false;
+  for (const a of accounts) {
+    const matching = a.snapshots
+      .filter((s) => s.range === range)
+      .sort((x, y) => new Date(y.capturedAt).getTime() - new Date(x.capturedAt).getTime());
+    if (matching.length < 2) continue;
+    anyPrev = true;
+    cur.sent += matching[0].sent;
+    cur.viewed += matching[0].viewed;
+    cur.interviewed += matching[0].interviewed;
+    cur.hired += matching[0].hired;
+    prev.sent += matching[1].sent;
+    prev.viewed += matching[1].viewed;
+    prev.interviewed += matching[1].interviewed;
+    prev.hired += matching[1].hired;
+  }
+  if (!anyPrev) return null;
+  const pct = (c: number, p: number) => (p === 0 ? null : Math.round(((c - p) / p) * 100));
+  return {
+    cur,
+    prev,
+    delta: {
+      sent: pct(cur.sent, prev.sent),
+      viewed: pct(cur.viewed, prev.viewed),
+      interviewed: pct(cur.interviewed, prev.interviewed),
+      hired: pct(cur.hired, prev.hired),
+    },
+  };
+}
+
 export function computeTimeSeriesData(
   accounts: AccountData[],
   range: OverviewRange,
@@ -213,48 +252,65 @@ export function computeTimeSeriesData(
 }
 
 // ─── Snapshot Timeline ────────────────────────────────────────────────────────
-// Returns one entry per calendar day (latest snapshot that day), sorted
-// ascending, with the most recent marked isLatest = true.
+// Returns one entry per calendar day, summed across all accounts (each account
+// contributes its latest snapshot for that day), sorted ascending.
 export function computeSnapshotTimeline(
   accounts: AccountData[],
   range: OverviewRange,
 ): TimelineEntry[] {
-  // Collect all snapshots for this range across all accounts
-  const all = accounts.flatMap((a) =>
-    a.snapshots.filter((s) => s.range === range),
-  );
+  type DayAgg = {
+    sent: number; viewed: number; interviewed: number; hired: number;
+    connectsBalance: number | null; jss: number | null; latestCapturedAt: string;
+  };
+  const byDay = new Map<string, DayAgg>();
 
-  // Group by calendar day (YYYY-MM-DD), keeping the latest snapshot per day
-  const byDay = new Map<string, SnapshotSummary>();
-  for (const s of all) {
-    const day = new Date(s.capturedAt).toISOString().slice(0, 10); // "2024-04-28"
-    const existing = byDay.get(day);
-    if (
-      !existing ||
-      new Date(s.capturedAt).getTime() > new Date(existing.capturedAt).getTime()
-    ) {
-      byDay.set(day, s);
+  for (const account of accounts) {
+    // Deduplicate to latest snapshot per UTC day for this account
+    const acctByDay = new Map<string, SnapshotSummary>();
+    for (const s of account.snapshots.filter((s) => s.range === range)) {
+      const day = new Date(s.capturedAt).toISOString().slice(0, 10);
+      const existing = acctByDay.get(day);
+      if (!existing || new Date(s.capturedAt) > new Date(existing.capturedAt)) {
+        acctByDay.set(day, s);
+      }
+    }
+
+    // Sum this account's daily values into the global aggregation
+    for (const [day, s] of acctByDay) {
+      const existing = byDay.get(day);
+      if (existing) {
+        existing.sent += s.sent;
+        existing.viewed += s.viewed;
+        existing.interviewed += s.interviewed;
+        existing.hired += s.hired;
+        existing.connectsBalance = (existing.connectsBalance ?? 0) + (s.connectsBalance ?? 0);
+        existing.jss = s.jss ?? existing.jss;
+        if (s.capturedAt > existing.latestCapturedAt) existing.latestCapturedAt = s.capturedAt;
+      } else {
+        byDay.set(day, {
+          sent: s.sent, viewed: s.viewed, interviewed: s.interviewed, hired: s.hired,
+          connectsBalance: s.connectsBalance, jss: s.jss, latestCapturedAt: s.capturedAt,
+        });
+      }
     }
   }
 
-  // Sort ascending by day
-  const sorted = Array.from(byDay.entries()).sort(([a], [b]) =>
-    a.localeCompare(b),
-  );
+  const sorted = Array.from(byDay.entries()).sort(([a], [b]) => a.localeCompare(b));
 
-  return sorted.map(([, s], i) => ({
-    date: new Date(s.capturedAt).toLocaleDateString("en-US", {
+  return sorted.map(([day, d], i) => ({
+    date: new Date(day + "T00:00:00Z").toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
+      timeZone: "UTC",
     }),
-    capturedAt: s.capturedAt,
-    sent: s.sent,
-    viewed: s.viewed,
-    interviewed: s.interviewed,
-    hired: s.hired,
-    connectsBalance: s.connectsBalance,
-    jss: s.jss,
-    viewRate: s.viewRate,
+    capturedAt: d.latestCapturedAt,
+    sent: d.sent,
+    viewed: d.viewed,
+    interviewed: d.interviewed,
+    hired: d.hired,
+    connectsBalance: d.connectsBalance,
+    jss: d.jss,
+    viewRate: d.sent > 0 ? Math.round((d.viewed / d.sent) * 1000) / 10 : 0,
     isLatest: i === sorted.length - 1,
   }));
 }

@@ -97,6 +97,8 @@ model Account {
   name            String
   jss             Float?
   connectsBalance Int?
+  isDisabled      Boolean        @default(false)
+  disabledReason  String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   snapshots       Snapshot[]

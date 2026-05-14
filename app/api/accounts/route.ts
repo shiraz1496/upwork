@@ -70,6 +70,8 @@ export async function GET() {
         name: account.name,
         jss: account.jss,
         connectsBalance: account.connectsBalance,
+        isDisabled: account.isDisabled,
+        disabledReason: account.disabledReason ?? null,
         createdAt: account.createdAt,
         latestSnapshot: latest
           ? {

@@ -69,18 +69,32 @@ const IconArrowDown = () => (
   </svg>
 );
 
+export type ActivityComparison = {
+  cur: { sent: number; viewed: number; interviewed: number; hired: number };
+  prev: { sent: number; viewed: number; interviewed: number; hired: number };
+  prevDate: string;
+} | null;
+
 export type OverviewPanelProps = {
   accounts: AccountData[];
   range: OverviewRange;
   onRangeChange: (r: OverviewRange) => void;
   showAccountComparison?: boolean;
+  activityComparison?: ActivityComparison;
+  isLoadingComparison?: boolean;
 };
+
+function pct(cur: number, prev: number): number | null {
+  return prev === 0 ? null : Math.round(((cur - prev) / prev) * 100);
+}
 
 export function OverviewPanel({
   accounts,
   range,
   onRangeChange,
   showAccountComparison = false,
+  activityComparison,
+  isLoadingComparison = false,
 }: OverviewPanelProps) {
   const aggregated = useMemo(() => computeAggregated(accounts, range), [accounts, range]);
   const deltas = useMemo(() => computeDeltas(accounts, range), [accounts, range]);
@@ -89,6 +103,8 @@ export function OverviewPanel({
   const timeline = useMemo(() => computeSnapshotTimeline(accounts, range), [accounts, range]);
 
   const rangeLabel = range === "7d" ? "7" : range === "30d" ? "30" : "90";
+
+  const cmp = activityComparison;
 
   return (
     <div className="py-6">
@@ -116,28 +132,40 @@ export function OverviewPanel({
           label="Proposals Sent"
           value={fmt(aggregated.sent)}
           color={COLORS.blue}
-          delta={deltas?.sent}
+          delta={cmp ? pct(cmp.cur.sent, cmp.prev.sent) : null}
+          prevValue={cmp?.prev.sent}
+          prevDate={cmp?.prevDate}
+          isLoading={isLoadingComparison}
         />
         <StatCard
           label="Viewed"
           value={fmt(aggregated.viewed)}
           sub={`${aggregated.viewRate}% view rate`}
           color={COLORS.cyan}
-          delta={deltas?.viewed}
+          delta={cmp ? pct(cmp.cur.viewed, cmp.prev.viewed) : null}
+          prevValue={cmp?.prev.viewed}
+          prevDate={cmp?.prevDate}
+          isLoading={isLoadingComparison}
         />
         <StatCard
           label="Interviewed"
           value={fmt(aggregated.interviewed)}
           sub={`${aggregated.interviewRate}% of sent`}
           color={COLORS.purple}
-          delta={deltas?.interviewed}
+          delta={cmp ? pct(cmp.cur.interviewed, cmp.prev.interviewed) : null}
+          prevValue={cmp?.prev.interviewed}
+          prevDate={cmp?.prevDate}
+          isLoading={isLoadingComparison}
         />
         <StatCard
           label="Hired"
           value={fmt(aggregated.hired)}
           sub={`${aggregated.hireRate}% hire rate`}
           color={COLORS.green}
-          delta={deltas?.hired}
+          delta={cmp ? pct(cmp.cur.hired, cmp.prev.hired) : null}
+          prevValue={cmp?.prev.hired}
+          prevDate={cmp?.prevDate}
+          isLoading={isLoadingComparison}
         />
         {aggregated.jss !== null && (
           <StatCard
@@ -162,8 +190,8 @@ export function OverviewPanel({
         />
       </div>
 
-      {/* ── Snapshot Timeline strip ───────────────────────────────────────── */}
-      {/* <SnapshotTimeline entries={timeline} range={range} /> */}
+      {/* ── Snapshot timeline strip ──────────────────────────────────────── */}
+      {timeline.length >= 1 && <SnapshotTimeline entries={timeline} range={range} />}
 
       <SectionTitle>Conversion Pipeline</SectionTitle>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -272,7 +300,7 @@ export function OverviewPanel({
             </ResponsiveContainer>
           </div>
 
-          {timeSeriesData.some((d) => d.jss !== null) && (
+          {/* {timeSeriesData.some((d) => d.jss !== null) && (
             <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
               <h3 className="text-sm font-semibold text-gray-600 mb-4">JSS Trend</h3>
               <ResponsiveContainer width="100%" height={280}>
@@ -285,7 +313,7 @@ export function OverviewPanel({
                 </LineChart>
               </ResponsiveContainer>
             </div>
-          )}
+          )} */}
         </div>
       )}
 
@@ -332,18 +360,25 @@ export function OverviewPanel({
   );
 }
 
+
 function StatCard({
   label,
   value,
   sub,
   color,
   delta,
+  prevValue,
+  prevDate,
+  isLoading = false,
 }: {
   label: string;
   value: string | number;
   sub?: string;
   color?: string;
   delta?: number | null;
+  prevValue?: number;
+  prevDate?: string;
+  isLoading?: boolean;
 }) {
   const up = delta != null && delta > 0;
   const down = delta != null && delta < 0;
@@ -351,7 +386,9 @@ function StatCard({
     <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-2 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">{label}</span>
-        {delta != null && (
+        {isLoading ? (
+          <div className="h-4 w-10 rounded bg-gray-200 animate-pulse" />
+        ) : delta != null ? (
           <span
             className={`inline-flex items-center gap-0.5 text-[11px] font-medium px-1.5 py-0.5 rounded ${
               up
@@ -365,7 +402,7 @@ function StatCard({
             {down && <IconArrowDown />}
             {Math.abs(delta)}%
           </span>
-        )}
+        ) : null}
       </div>
       <span
         className="text-2xl font-semibold tracking-tight"
@@ -373,6 +410,16 @@ function StatCard({
       >
         {value}
       </span>
+      {isLoading ? (
+        <div className="h-3 w-28 rounded bg-gray-200 animate-pulse" />
+      ) : prevValue !== undefined && prevDate !== undefined ? (
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className="text-gray-400">Previously</span>
+          <span className="font-semibold text-gray-600">{fmt(prevValue)}</span>
+          <span className="text-gray-300">·</span>
+          <span className="text-gray-400">{prevDate} snapshot</span>
+        </div>
+      ) : null}
       {sub && <span className="text-xs text-gray-400">{sub}</span>}
     </div>
   );
@@ -388,86 +435,125 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 // ─── Snapshot Timeline Strip ─────────────────────────────────────────────────
 
-function SnapshotTimeline({ entries, range }: { entries: TimelineEntry[]; range: OverviewRange }) {
-  const rangeLabel = range === "7d" ? "7 days" : range === "30d" ? "30 days" : "90 days";
+const SNAP_BARS = [
+  { key: "sent"        as const, color: COLORS.blue,   label: "Sent"        },
+  { key: "viewed"      as const, color: COLORS.cyan,   label: "Viewed"      },
+  { key: "interviewed" as const, color: COLORS.purple, label: "Interviewed" },
+  { key: "hired"       as const, color: COLORS.green,  label: "Hired"       },
+];
 
+function SnapshotTimeline({ entries, range }: { entries: TimelineEntry[]; range: OverviewRange }) {
   if (entries.length === 0) return null;
 
+  const globalMax = Math.max(
+    ...entries.flatMap((e) => [e.sent, e.viewed, e.interviewed, e.hired]),
+    1,
+  );
+
+  const rangeLabel = range === "7d" ? "7d" : range === "30d" ? "30d" : "90d";
+
   return (
-    <div className="mt-6 mb-2">
+    <div className="mt-5 mb-1">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-          Snapshot History
-        </h2>
-        <span className="text-[11px] text-gray-400">
-          {entries.length} reading{entries.length !== 1 ? "s" : ""} · rolling {rangeLabel}
-        </span>
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Snapshot history</h2>
+        <div className="flex items-center gap-3 text-[10px] text-gray-400">
+          {SNAP_BARS.map(({ key, color, label }) => (
+            <span key={key} className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-sm inline-block" style={{ background: color }} />
+              {label}
+            </span>
+          ))}
+          <span className="text-gray-300">·</span>
+          <span>{entries.length} snapshots · {rangeLabel} window each</span>
+        </div>
       </div>
 
-      {/* Scrollable row */}
-      <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
-        {entries.map((entry) => (
-          <div
-            key={entry.capturedAt}
-            className={`flex-shrink-0 rounded-xl border p-4 flex flex-col gap-2 min-w-[140px] transition-shadow ${
-              entry.isLatest
-                ? "border-teal-400 bg-teal-50 shadow-sm shadow-teal-100"
-                : "border-gray-200 bg-white hover:shadow-sm"
-            }`}
-          >
-            {/* Date + Latest badge */}
-            <div className="flex items-center justify-between gap-2">
-              <span
-                className={`text-xs font-semibold ${
-                  entry.isLatest ? "text-teal-700" : "text-gray-500"
-                }`}
-              >
-                {entry.date}
-              </span>
-              {entry.isLatest && (
-                <span className="text-[9px] font-bold uppercase tracking-wide bg-teal-500 text-white px-1.5 py-0.5 rounded-full">
-                  Latest
-                </span>
-              )}
-            </div>
+      <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+        {entries.map((entry, i) => {
+          const prevSent = i > 0 ? entries[i - 1].sent : null;
+          const trend = prevSent === null ? null : entry.sent - prevSent;
+          const dayLabel = new Date(entry.capturedAt).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" }).toUpperCase();
 
-            {/* Metrics */}
-            <div className="flex flex-col gap-1">
-              <TimelineMetricRow label="Sent" value={entry.sent} color="#3b82f6" />
-              <TimelineMetricRow label="Viewed" value={entry.viewed} color="#06b6d4" />
-              <TimelineMetricRow label="Hired" value={entry.hired} color="#22c55e" />
-            </div>
+          const vrHigh = entry.viewRate >= 50;
+          const vrMid  = entry.viewRate >= 25;
+          const vrColor = vrHigh ? "#0d9488" : vrMid ? "#d97706" : "#e11d48";
 
-            {/* View rate */}
+          return (
             <div
-              className={`text-[11px] font-medium mt-0.5 ${
-                entry.isLatest ? "text-teal-600" : "text-gray-400"
+              key={entry.capturedAt}
+              className={`group flex-shrink-0 rounded-xl border flex flex-col gap-2.5 p-3 w-[116px] transition-all duration-150 ${
+                entry.isLatest
+                  ? "border-teal-300 bg-gradient-to-b from-teal-50 to-white shadow-sm shadow-teal-100/60"
+                  : "border-gray-200 bg-white shadow-sm hover:shadow-md hover:shadow-gray-100/80"
               }`}
             >
-              {entry.viewRate}% view rate
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+              {/* Day + date row */}
+              <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-0">
+                  <span className={`text-[9px] font-bold tracking-widest ${entry.isLatest ? "text-teal-400" : "text-gray-300"}`}>
+                    {dayLabel}
+                  </span>
+                  <span className={`text-[12px] font-bold leading-tight ${entry.isLatest ? "text-teal-700" : "text-gray-700"}`}>
+                    {entry.date}
+                  </span>
+                </div>
+                {entry.isLatest && (
+                  <span className="text-[8px] font-bold uppercase tracking-wide bg-teal-500 text-white px-1.5 py-0.5 rounded-full leading-none mt-0.5">
+                    Now
+                  </span>
+                )}
+              </div>
 
-function TimelineMetricRow({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-[11px] text-gray-400">{label}</span>
-      <span className="text-[13px] font-semibold" style={{ color }}>
-        {fmt(value)}
-      </span>
+              {/* Bar chart */}
+              <div className="flex items-end gap-[3px] h-12 px-0.5">
+                {SNAP_BARS.map(({ key, color }) => {
+                  const val = entry[key as keyof TimelineEntry] as number;
+                  const barPct = Math.max((val / globalMax) * 100, val > 0 ? 6 : 0);
+                  return (
+                    <div key={key} className="flex-1 flex flex-col justify-end h-full relative">
+                      {val > 0 && (
+                        <span
+                          className="absolute left-0 right-0 text-center text-[8px] font-semibold leading-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                          style={{ bottom: `calc(${barPct}% + 2px)`, color }}
+                        >
+                          {val}
+                        </span>
+                      )}
+                      <div
+                        className="w-full rounded-t-[3px]"
+                        style={{ height: `${barPct}%`, background: color, opacity: 0.7 }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Divider */}
+              <div className={`h-px ${entry.isLatest ? "bg-teal-100" : "bg-gray-100"}`} />
+
+              {/* Sent + trend */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-baseline gap-1">
+                  <span className={`text-[22px] font-bold leading-none ${entry.isLatest ? "text-teal-700" : "text-gray-800"}`}>
+                    {entry.sent}
+                  </span>
+                  <span className="text-[9px] text-gray-400">sent</span>
+                </div>
+                {trend !== null && trend !== 0 && (
+                  <span className={`text-[10px] font-semibold flex items-center gap-0.5 ${trend > 0 ? "text-emerald-500" : "text-rose-400"}`}>
+                    {trend > 0 ? "↑" : "↓"}{Math.abs(trend)}
+                  </span>
+                )}
+              </div>
+
+              {/* View rate */}
+              <span className="text-[10px] font-medium" style={{ color: vrColor }}>
+                {entry.viewRate}% viewed
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-const DEFAULT_BACKEND_URL = "https://upwork-tracking-tool.vercel.app";
+const DEFAULT_BACKEND_URL = "http://localhost:3000";
 
 console.log("[UT BG] Service worker started v5");
 
@@ -343,10 +343,26 @@ async function handleAccountDetected(payload) {
   const realName = name || username || existing.lastAccountInfo?.name || null;
 
   // Sync account to backend
-  return syncToBackend("/api/sync/account", {
+  const syncResult = await syncToBackend("/api/sync/account", {
     freelancerId: userId,
     ...(realName ? { name: realName } : {}),
   });
+
+  // Store disable status and notify all Upwork tabs
+  const isDisabled = syncResult?.result?.isDisabled ?? false;
+  const disabledReason = syncResult?.result?.disabledReason ?? null;
+  await chrome.storage.local.set({ accountDisabled: isDisabled, accountDisabledReason: disabledReason });
+
+  const tabs = await chrome.tabs.query({ url: "https://www.upwork.com/*" });
+  for (const tab of tabs) {
+    chrome.tabs.sendMessage(tab.id, {
+      type: "ACCOUNT_DISABLE_STATUS",
+      isDisabled,
+      reason: disabledReason,
+    }).catch(() => {});
+  }
+
+  return syncResult;
 }
 
 // ════════════════════════════════════════════════════

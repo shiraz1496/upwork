@@ -2263,4 +2263,73 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "SHOW_COVERAGE_MODAL") {
     showCoverageModal(message.payload);
   }
+  if (message.type === "ACCOUNT_DISABLE_STATUS") {
+    if (message.isDisabled) showDisabledBanner(message.reason);
+    else removeDisabledBanner();
+  }
 });
+
+// On page load, check stored disable status immediately
+chrome.storage.local.get(["accountDisabled", "accountDisabledReason"], (data) => {
+  if (data.accountDisabled) showDisabledBanner(data.accountDisabledReason ?? null);
+});
+
+function showDisabledBanner(reason) {
+  removeDisabledBanner();
+  const banner = document.createElement("div");
+  banner.id = "__ut_disabled_banner";
+  banner.style.cssText = [
+    "position:fixed",
+    "top:0",
+    "left:0",
+    "right:0",
+    "z-index:2147483647",
+    "background:rgba(220,38,38,0.82)",
+    "backdrop-filter:blur(6px)",
+    "-webkit-backdrop-filter:blur(6px)",
+    "color:#fff",
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    "font-size:14px",
+    "font-weight:600",
+    "text-align:center",
+    "padding:10px 48px",
+    "box-shadow:0 2px 8px rgba(0,0,0,0.3)",
+    "letter-spacing:0.01em",
+  ].join(";");
+  const msg = reason
+    ? `Bidding disabled: ${reason}`
+    : "Admin has forbidden bidding on this Upwork account";
+  banner.textContent = msg;
+
+  const closeBtn = document.createElement("button");
+  closeBtn.textContent = "✕";
+  closeBtn.style.cssText = [
+    "position:absolute",
+    "right:14px",
+    "top:50%",
+    "transform:translateY(-50%)",
+    "background:rgba(255,255,255,0.2)",
+    "border:none",
+    "color:#fff",
+    "font-size:13px",
+    "font-weight:700",
+    "width:24px",
+    "height:24px",
+    "border-radius:50%",
+    "cursor:pointer",
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "line-height:1",
+    "padding:0",
+  ].join(";");
+  closeBtn.addEventListener("click", () => removeDisabledBanner());
+  banner.appendChild(closeBtn);
+
+  document.documentElement.appendChild(banner);
+}
+
+function removeDisabledBanner() {
+  const existing = document.getElementById("__ut_disabled_banner");
+  if (existing) existing.remove();
+}
