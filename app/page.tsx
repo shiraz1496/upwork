@@ -6,6 +6,7 @@ import { TeamStatsView } from "@/components/admin/TeamStatsView";
 import { CoveragePagesView } from "@/components/admin/CoveragePagesView";
 import { CoverageLeaderboardView } from "@/components/admin/CoverageLeaderboardView";
 import { BiddingCriteriaView } from "@/components/admin/BiddingCriteriaView";
+import { AccountManagementView } from "@/components/admin/AccountManagementView";
 import { OverviewPanel, type ActivityComparison } from "@/components/OverviewPanel";
 import { FreelancerProfileCard } from "@/components/FreelancerProfileCard";
 import type {
@@ -415,7 +416,8 @@ type Tab =
   | "team-stats"
   | "coverage-pages"
   | "leaderboard"
-  | "bidding-criteria";
+  | "bidding-criteria"
+  | "accounts";
 
 // Tooltip style constants were moved to OverviewPanel
 
@@ -782,7 +784,8 @@ export default function Dashboard() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   const ADMIN_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: "team", label: "Team", icon: <IconUsers /> },
+    { id: "accounts", label: "Accounts", icon: <IconUsers /> },
+    { id: "team", label: "Team", icon: <IconUser /> },
     { id: "team-stats", label: "Team Stats", icon: <IconChart /> },
     { id: "leaderboard", label: "Leaderboard", icon: <IconTrophy /> },
     { id: "coverage-pages", label: "Coverage Pages", icon: <IconCompass /> },
@@ -991,21 +994,9 @@ export default function Dashboard() {
             >
               <option value="all">All accounts</option>
               {accountsForMember.map((a) => (
-                <option key={a.id} value={a.id}>{a.isDisabled ? `⛔ ${a.name}` : a.name}</option>
+                <option key={a.id} value={a.id}>{a.name}</option>
               ))}
             </select>
-            {selectedAccountId !== "all" && (() => {
-              const acc = accountsForMember.find((a) => a.id === selectedAccountId);
-              if (!acc) return null;
-              return (
-                <button
-                  onClick={() => { setDisableModal({ accountId: acc.id, accountName: acc.name, current: acc.isDisabled, reason: acc.disabledReason ?? null }); setDisableReason(acc.disabledReason ?? ""); }}
-                  className={`w-full mt-2 text-xs font-medium py-1.5 rounded-lg border transition-colors ${acc.isDisabled ? "border-green-200 text-green-700 bg-green-50 hover:bg-green-100" : "border-red-200 text-red-600 bg-red-50 hover:bg-red-100"}`}
-                >
-                  {acc.isDisabled ? "✓ Re-enable account" : "⛔ Disable account"}
-                </button>
-              );
-            })()}
           </div>
           {teamMembers.length > 0 && (
             <div>
@@ -1697,6 +1688,17 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+          )}
+
+          {/* ── Accounts Tab ─────────────────────────────────────────────────── */}
+          {activeTab === "accounts" && (
+            <AccountManagementView
+              accounts={accounts}
+              onToggleDisabled={(acc: AccountData) => {
+                setDisableModal({ accountId: acc.id, accountName: acc.name, current: acc.isDisabled, reason: acc.disabledReason ?? null });
+                setDisableReason(acc.disabledReason ?? "");
+              }}
+            />
           )}
 
           {/* ── Team Tab ─────────────────────────────────────────────────────── */}

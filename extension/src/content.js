@@ -1,5 +1,33 @@
 console.log("[UT] Content script loaded:", window.location.href);
 
+// ── Extension status banner ───────────────────────────────────────────────────
+(async () => {
+  const { authToken } = await chrome.storage.local.get(["authToken"]);
+  if (authToken) return;
+
+  const banner = document.createElement("div");
+  banner.id = "ut-status-banner";
+  banner.style.cssText = [
+    "position:fixed", "top:0", "left:0", "right:0", "z-index:2147483647",
+    "background:#fef3c7", "border-bottom:1px solid #fcd34d",
+    "padding:10px 16px", "display:flex", "align-items:center", "gap:10px",
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    "font-size:13px", "color:#92400e", "box-shadow:0 2px 8px rgba(0,0,0,.08)",
+  ].join(";");
+
+  banner.innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+      <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+    </svg>
+    <span><strong>Upwork Tracker:</strong> No token configured — click the extension icon and paste your token to start syncing.</span>
+    <button id="ut-banner-close" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:16px;color:#92400e;line-height:1;padding:0 4px">✕</button>
+  `;
+
+  document.documentElement.appendChild(banner);
+  document.getElementById("ut-banner-close")?.addEventListener("click", () => banner.remove());
+})();
+
 // ── Firefox fallback: inject into MAIN world via script tags ──
 // Chrome uses chrome.scripting with world:"MAIN" from background.js
 // Firefox doesn't support that, so we inject via script tags after a short delay
