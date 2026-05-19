@@ -307,17 +307,35 @@ function scrapeAccount() {
   // ── Professional title (heading-like element with "|" / "," / role keyword) ──
   info.title = extractTitle(info.name);
 
-  // ── Photo URL: largest <img> in the header / first non-decorative ──
-  const photoCandidates = Array.from(document.querySelectorAll("img"))
-    .map((img) => ({
-      img,
-      src: img.currentSrc || img.src || "",
-      area: (img.naturalWidth || img.width || 0) * (img.naturalHeight || img.height || 0),
-    }))
-    .filter((c) => c.src && /upwork|profile|avatar|photo/i.test(c.src) && !/icon|sprite|logo/i.test(c.src));
-  if (photoCandidates.length > 0) {
-    photoCandidates.sort((a, b) => b.area - a.area);
-    info.photoUrl = photoCandidates[0].src;
+  // ── Photo URL ──
+  // Use screen-size-independent signals only. The profile portrait always
+  // lives at a /profile-portraits/ URL and uses the stable `air3-avatar`
+  // class; prefer it scoped to the schema.org Person header so we don't
+  // grab a "similar freelancer" portrait. (Do NOT key off layout classes
+  // like air3-avatar-88 — the size suffix changes per breakpoint.)
+  const personScope = document.querySelector('[itemtype*="schema.org/Person"]');
+  const photoEl =
+    (personScope && personScope.querySelector('img[src*="/profile-portraits/"]')) ||
+    document.querySelector('img.air3-avatar[src*="/profile-portraits/"]') ||
+    document.querySelector('img[src*="/profile-portraits/"]');
+  if (photoEl) {
+    info.photoUrl = photoEl.currentSrc || photoEl.src || null;
+  }
+
+  // Fallback: legacy heuristic (largest profile-ish image) only if the
+  // stable portrait selector found nothing.
+  if (!info.photoUrl) {
+    const photoCandidates = Array.from(document.querySelectorAll("img"))
+      .map((img) => ({
+        img,
+        src: img.currentSrc || img.src || "",
+        area: (img.naturalWidth || img.width || 0) * (img.naturalHeight || img.height || 0),
+      }))
+      .filter((c) => c.src && /upwork|profile|avatar|photo/i.test(c.src) && !/icon|sprite|logo/i.test(c.src));
+    if (photoCandidates.length > 0) {
+      photoCandidates.sort((a, b) => b.area - a.area);
+      info.photoUrl = photoCandidates[0].src;
+    }
   }
 
   // ── Numeric stats (top metrics block) ──
@@ -2583,7 +2601,15 @@ function detectPageAndScrape() {
         console.log("[UT] Skip profile scrape: no canonical user yet");
         return;
       }
-      if (pageProfileId && pageProfileId !== data.canonicalUserId) {
+      // Fail closed: only scrape when the profile id in the URL is known
+      // AND matches the locked canonical (logged-in) user. A missing id
+      // must NOT fall through to a scrape — that let foreign profiles
+      // overwrite the logged-in account's record.
+      if (!pageProfileId) {
+        console.log("[UT] Skip profile scrape: could not determine profile id from URL", url);
+        return;
+      }
+      if (pageProfileId !== data.canonicalUserId) {
         console.log("[UT] Skip profile scrape: not own profile", pageProfileId, "vs", data.canonicalUserId);
         return;
       }

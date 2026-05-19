@@ -301,6 +301,7 @@ export default function MePage() {
               onChange={(e) => setSelectedAccountId(e.target.value)}
               className="w-full mt-1.5 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
             >
+              <option value="all">All accounts</option>
               {myAccounts.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}

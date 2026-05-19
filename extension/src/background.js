@@ -1,4 +1,4 @@
-const DEFAULT_BACKEND_URL = "http://localhost:3000";
+const DEFAULT_BACKEND_URL = "https://upwork-tracking-tool.vercel.app";
 
 console.log("[UT BG] Service worker started v5");
 
@@ -38,7 +38,7 @@ chrome.webNavigation.onCommitted.addListener(
       chrome.scripting.executeScript({
         target: { tabId: details.tabId },
         files: ["src/injected.js"],
-      }).catch(() => {});
+      }).catch(() => { });
     });
     chrome.scripting.executeScript({
       target: { tabId: details.tabId },
@@ -48,7 +48,7 @@ chrome.webNavigation.onCommitted.addListener(
       chrome.scripting.executeScript({
         target: { tabId: details.tabId },
         files: ["src/account-detector.js"],
-      }).catch(() => {});
+      }).catch(() => { });
     });
   },
   { url: [{ hostContains: "upwork.com" }] }
@@ -209,7 +209,7 @@ async function pollPendingNudges() {
         type: "SHOW_NUDGE_SUMMARY",
         payload: { count: entry.count, single: entry.single, accountName: entry.accountName },
       })
-      .catch(() => {});
+      .catch(() => { });
   }
 }
 
@@ -320,7 +320,7 @@ async function checkUrlAgainstRequiredPages(url) {
         await postPageVisit(page.id);
         break;
       }
-    } catch {}
+    } catch { }
   }
 }
 
@@ -350,7 +350,7 @@ async function checkCoverageAndNotify(tabId) {
     chrome.tabs.sendMessage(targetTab, {
       type: "SHOW_COVERAGE_MODAL",
       payload: { pct, unvisited: data.unvisited || [] },
-    }).catch(() => {});
+    }).catch(() => { });
     console.log("[UT BG] Coverage modal sent to tab", targetTab, pct + "%");
   } catch (e) {
     console.warn("[UT BG] checkCoverageAndNotify error", e);
@@ -364,7 +364,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     .then(sendResponse)
     .catch((e) => {
       console.error("[UT BG] handleMessage rejected:", e);
-      try { sendResponse({ ok: false, error: e?.message || String(e) }); } catch {}
+      try { sendResponse({ ok: false, error: e?.message || String(e) }); } catch { }
     });
   return true; // async response
 });
@@ -489,8 +489,11 @@ async function handleScrapedAccount(payload) {
     return { ok: false, note: "No canonical userId yet — visit any Upwork page first" };
   }
 
-  if (userId && userId !== fid) {
-    console.log("[UT BG] REJECTED: profile data from", userId, "does not match canonical", fid);
+  // Fail closed: only accept scraped profile data when its id is present
+  // AND matches the canonical user. An absent id is "unknown identity",
+  // which must be rejected — not silently filed under the canonical user.
+  if (!userId || userId !== fid) {
+    console.log("[UT BG] REJECTED: scraped profile id", userId || "(none)", "does not match canonical", fid);
     return { ok: false, note: "Profile does not belong to logged-in user" };
   }
 
