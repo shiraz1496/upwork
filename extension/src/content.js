@@ -255,6 +255,297 @@ function injectCriteriaPanel(job, results) {
   panel.querySelector("#ut-criteria-close").addEventListener("click", () => panel.remove());
 }
 
+// ── Feed card verdicts ────────────────────────────────────────────────────────
+// Shows a small ✓/✗/? badge on every job card in the feed.
+// Evaluated locally from the 3 fields visible on cards: payment verified,
+// rating, and total spent. Criteria loaded via the backend API (same call the
+// sidebar uses), then cached in chrome.storage for 5 minutes so subsequent
+// page loads don't hit the network at all.
+
+const CARD_EVALUABLE_FIELDS = new Set([
+  "client_payment_verified",
+  "client_rating",
+  "client_total_spent",
+]);
+
+let _cardCriteriaCache = null;
+let _cardCriteriaTs    = 0;
+
+async function loadCardCriteria() {
+  const now = Date.now();
+
+  // 1. In-memory cache (60s) — fastest path
+  if (_cardCriteriaCache && now - _cardCriteriaTs < 60_000) {
+    console.log("[UT] Criteria: in-memory cache hit");
+    return _cardCriteriaCache;
+  }
+
+  // 2. chrome.storage cache (5-min TTL) — survives page loads, no API call
+  try {
+    const stored = await chrome.storage.local.get(["_criteriaCache", "_criteriaCacheTs"]);
+    if (stored._criteriaCache && now - (stored._criteriaCacheTs || 0) < 300_000) {
+      _cardCriteriaCache = stored._criteriaCache;
+      _cardCriteriaTs    = now;
+      console.log("[UT] Criteria: storage cache hit,", _cardCriteriaCache.length, "criteria");
+      return _cardCriteriaCache;
+    }
+  } catch (e) {
+    console.warn("[UT] Criteria storage read error:", e);
+  }
+
+  // 3. Fetch from backend via background (same endpoint the sidebar uses)
+  console.log("[UT] Criteria: fetching from API via GET_BIDDING_CRITERIA...");
+  const data = await new Promise((resolve) =>
+    chrome.runtime.sendMessage({ type: "GET_BIDDING_CRITERIA" }, resolve)
+  );
+  _cardCriteriaCache = (data && data.criteria) || [];
+  _cardCriteriaTs    = now;
+
+  console.log("[UT] Criteria loaded from API:", _cardCriteriaCache.length, "total —",
+    _cardCriteriaCache.map((c) => `${c.key}(req:${c.required})`).join(", ")
+  );
+
+  // Save to storage for next page load
+  chrome.storage.local.set({ _criteriaCache: _cardCriteriaCache, _criteriaCacheTs: now }).catch(() => {});
+
+  return _cardCriteriaCache;
+}
+
+function scrapeCardClientData(card) {
+  const text = card.innerText || "";
+  const data = {};
+
+  // ── Payment verified ──
+  data.clientPaymentVerified = /payment\s*(method\s*)?verified/i.test(text);
+
+  // ── Rating — look for a decimal like "4.8" near star elements ──
+  const starEl = card.querySelector(
+    '[class*="star"], [class*="rating"], [class*="stars"], [aria-label*="star"], [aria-label*="rating"]'
+  );
+  if (starEl) {
+    const rt = (starEl.closest("div, span, li") || starEl).textContent || "";
+    const rm = rt.match(/\b([1-5](?:\.\d{1,2})?)\b/);
+    if (rm) data.clientRating = parseFloat(rm[1]);
+  }
+  // Fallback: any decimal in 1–5 range (require decimal to avoid "$5" matches)
+  if (!data.clientRating) {
+    const rm = text.match(/\b([1-5]\.\d{1,2})\b/);
+    if (rm) data.clientRating = parseFloat(rm[1]);
+  }
+
+  // ── Spent — "$1K+ spent", "$30K+ spent", "$5.2M spent" ──
+  const sm = text.match(/\$([\d,.]+[KkMmBb]*\+?)\s*(?:total\s*)?spent/i);
+  if (sm) data.clientSpent = "$" + sm[1];
+
+  console.log("[UT] Card data:", {
+    paymentVerified: data.clientPaymentVerified,
+    rating:          data.clientRating,
+    spent:           data.clientSpent,
+    text:            text.slice(0, 150).replace(/\n/g, " "),
+  });
+  return data;
+}
+
+function computeCardVerdict(cardData, criteria) {
+  const applicable = criteria.filter((c) => CARD_EVALUABLE_FIELDS.has(c.key));
+  if (!applicable.length) return null;
+
+  const results    = applicable.map((c) => ({ ...c, status: checkCriterion(c, cardData) }));
+  const reqFailed  = results.filter((r) => r.required && r.status === "fail");
+  const reqUnknown = results.filter((r) => r.required && r.status === "unknown");
+  const allReqPass = reqFailed.length === 0 && reqUnknown.length === 0;
+
+  console.log("[UT] Card verdict:",
+    results.map((r) => `${r.key}=${r.status}(req:${r.required})`).join(", "),
+    "→", reqFailed.length ? "SKIP" : allReqPass ? "APPLY" : "UNKNOWN"
+  );
+  return { results, reqFailed, reqUnknown, allReqPass };
+}
+
+function renderCardVerdictBadge(card, verdict) {
+  card.querySelector(".ut-verdict-badge")?.remove();
+
+  let label, color, bg, border;
+  if (verdict.reqFailed.length > 0) {
+    label = "✗ Not Recommended"; color = "#dc2626"; bg = "#fef2f2"; border = "#fecaca";
+  } else if (verdict.allReqPass) {
+    label = "✓ Worth Applying";  color = "#108a00"; bg = "#f0fdf4"; border = "#bbf7d0";
+  } else {
+    label = "? Limited Data";    color = "#92400e"; bg = "#fffbeb"; border = "#fde68a";
+  }
+
+  const tooltip = verdict.results
+    .map((r) => `${r.required ? "[req] " : ""}${formatCriterionLabel(r)}: ${r.status}`)
+    .join("\n");
+
+  const badge = document.createElement("span");
+  badge.className   = "ut-verdict-badge";
+  badge.title       = tooltip;
+  badge.style.cssText = [
+    `background:${bg}`, `color:${color}`, `border:1px solid ${border}`,
+    "position:absolute", "top:7px", "right:7px",
+    "display:inline-flex", "align-items:center",
+    "padding:3px 10px", "border-radius:4px",
+    "font-size:11px", "font-weight:700", "line-height:1.6",
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    "white-space:nowrap", "cursor:default", "z-index:10",
+    "pointer-events:none",
+  ].join(";");
+  badge.textContent = label;
+
+  // Card must be position:relative for absolute child to work
+  const existingPosition = getComputedStyle(card).position;
+  if (existingPosition === "static") card.style.position = "relative";
+
+  card.appendChild(badge);
+  console.log("[UT] Badge placed top-right of card");
+}
+
+let _cardVerdictObserverStarted = false;
+let _cardVerdictDebounce        = null;
+
+// Find job card containers in the feed using multiple strategies.
+// Upwork NX uses React routing — card title links do NOT use /jobs/~... hrefs,
+// so we cannot rely on link href patterns. Instead we locate cards by their
+// client-info content (payment verified / spent amount) which is unique to cards.
+function findFeedJobCards() {
+  const inPanel = (el) =>
+    !!el.closest('[class*="drawer"],[class*="panel"],[class*="slider"],[role="dialog"]');
+
+  const cards = new Set();
+
+  const PV_RE   = /payment\s*(?:method\s*)?(?:un)?verified/i;
+  const PV_RE_G = /payment\s*(?:method\s*)?(?:un)?verified/gi;
+
+  // Collect text nodes containing "payment verified" for Strategy 2 walk-up
+  const pvTextNodes = [];
+  {
+    const tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+    let tn;
+    while ((tn = tw.nextNode())) {
+      if (PV_RE.test(tn.textContent || "")) pvTextNodes.push(tn);
+    }
+  }
+
+  // ── Strategy 1: <article> elements with payment/spent info ──
+  for (const el of document.querySelectorAll("article")) {
+    if (inPanel(el)) continue;
+    const t = el.innerText || "";
+    if (t.length > 80 && /payment\s*(un)?verified|\$[\d,.]+[KkMmBb]*\+?\s*spent/i.test(t)) {
+      cards.add(el);
+    }
+  }
+  console.log("[UT] Strategy 1 (article):", cards.size);
+
+  // ── Strategy 2: walk up from text nodes containing "payment verified"
+  // Uses the pvTextNodes already collected by the TreeWalker above — works on both
+  // the feed page and the search page regardless of how text is distributed in the DOM.
+  if (cards.size === 0) {
+    for (const tn of pvTextNodes) {
+      const pvEl = tn.parentElement;
+      if (!pvEl || inPanel(pvEl)) continue;
+      let el = pvEl;
+      let bestCard = null;
+      while (el && el !== document.body) {
+        const text = el.innerText || "";
+        const pvCount = (text.match(PV_RE_G) || []).length;
+        if (pvCount > 1) break;
+        if (text.length > 80 && el.querySelector("h1, h2, h3, h4, a")) {
+          bestCard = el;
+        }
+        el = el.parentElement;
+      }
+      if (bestCard && !inPanel(bestCard)) cards.add(bestCard);
+    }
+    console.log("[UT] Strategy 2 (text node walk-up):", cards.size);
+  }
+
+  // ── Strategy 3: job title links (traditional /jobs/~ OR /jobs/ pattern) ──
+  if (cards.size === 0) {
+    for (const link of document.querySelectorAll('a[href*="/jobs/~"], a[href*="/jobs/"]')) {
+      if (isBadTitle(link.textContent.trim()) || inPanel(link)) continue;
+      const card = link.closest(
+        "article, section, [class*='card'], [class*='tile'], [class*='job'], div[class]"
+      );
+      if (card && (card.innerText || "").length > 80) cards.add(card);
+    }
+    console.log("[UT] Strategy 3 (job links):", cards.size);
+  }
+
+  // ── Strategy 4: any block element containing exactly one payment-verified block ──
+  if (cards.size === 0) {
+    for (const el of document.querySelectorAll("li, section, div[class], [class*='job-tile'], [class*='JobTile'], [class*='job-card']")) {
+      if (inPanel(el)) continue;
+      const text = el.innerText || "";
+      if (text.length < 100 || text.length > 8000) continue;
+      const pvCount = (text.match(PV_RE_G) || []).length;
+      if (pvCount !== 1) continue;
+      if (!el.querySelector("h1, h2, h3, h4, a")) continue;
+      cards.add(el);
+    }
+    console.log("[UT] Strategy 4 (block + payment):", cards.size);
+  }
+
+  // ── Deduplicate: remove cards that are ancestors of other found cards ──
+  const cardArr = [...cards];
+  const deduped = cardArr.filter((c) => !cardArr.some((other) => other !== c && c.contains(other)));
+  if (deduped.length !== cardArr.length) {
+    console.log("[UT] Deduped:", cardArr.length, "→", deduped.length);
+  }
+  return deduped;
+}
+
+async function injectFeedCardVerdicts() {
+  const criteria = await loadCardCriteria().catch((e) => {
+    console.error("[UT] loadCardCriteria error:", e);
+    return [];
+  });
+
+  const applicable = criteria.filter((c) => CARD_EVALUABLE_FIELDS.has(c.key));
+  if (!applicable.length) {
+    console.log("[UT] No card-evaluable criteria — skipping badges.",
+      "Configured:", criteria.map((c) => c.key).join(", ") || "(none)",
+      "— need one of:", [...CARD_EVALUABLE_FIELDS].join(", ")
+    );
+    return;
+  }
+
+  const feedCards = findFeedJobCards();
+  let injected = 0;
+
+  console.log("[UT] injectFeedCardVerdicts: found", feedCards.length, "cards,",
+    applicable.length, "card-evaluable criteria");
+
+  for (const card of feedCards) {
+    if (card.querySelector(".ut-verdict-badge")) continue;
+    const cardData = scrapeCardClientData(card);
+    const verdict  = computeCardVerdict(cardData, criteria);
+    if (verdict) {
+      renderCardVerdictBadge(card, verdict);
+      injected++;
+    }
+  }
+  console.log("[UT] Feed card verdicts done: injected", injected, "of", feedCards.length, "cards");
+}
+
+function watchForFeedCardVerdicts() {
+  if (_cardVerdictObserverStarted) return;
+  _cardVerdictObserverStarted = true;
+  console.log("[UT] watchForFeedCardVerdicts started");
+
+  injectFeedCardVerdicts();
+
+  const observer = new MutationObserver(() => {
+    clearTimeout(_cardVerdictDebounce);
+    _cardVerdictDebounce = setTimeout(() => {
+      injectFeedCardVerdicts().catch((e) =>
+        console.error("[UT] injectFeedCardVerdicts error:", e)
+      );
+    }, 800);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
 // ── Bad titles to always skip ──
 const BAD_TITLES = [
   "open job in a new window", "open job", "my proposals", "my stats",
@@ -335,17 +626,35 @@ function scrapeAccount() {
   // ── Professional title (heading-like element with "|" / "," / role keyword) ──
   info.title = extractTitle(info.name);
 
-  // ── Photo URL: largest <img> in the header / first non-decorative ──
-  const photoCandidates = Array.from(document.querySelectorAll("img"))
-    .map((img) => ({
-      img,
-      src: img.currentSrc || img.src || "",
-      area: (img.naturalWidth || img.width || 0) * (img.naturalHeight || img.height || 0),
-    }))
-    .filter((c) => c.src && /upwork|profile|avatar|photo/i.test(c.src) && !/icon|sprite|logo/i.test(c.src));
-  if (photoCandidates.length > 0) {
-    photoCandidates.sort((a, b) => b.area - a.area);
-    info.photoUrl = photoCandidates[0].src;
+  // ── Photo URL ──
+  // Use screen-size-independent signals only. The profile portrait always
+  // lives at a /profile-portraits/ URL and uses the stable `air3-avatar`
+  // class; prefer it scoped to the schema.org Person header so we don't
+  // grab a "similar freelancer" portrait. (Do NOT key off layout classes
+  // like air3-avatar-88 — the size suffix changes per breakpoint.)
+  const personScope = document.querySelector('[itemtype*="schema.org/Person"]');
+  const photoEl =
+    (personScope && personScope.querySelector('img[src*="/profile-portraits/"]')) ||
+    document.querySelector('img.air3-avatar[src*="/profile-portraits/"]') ||
+    document.querySelector('img[src*="/profile-portraits/"]');
+  if (photoEl) {
+    info.photoUrl = photoEl.currentSrc || photoEl.src || null;
+  }
+
+  // Fallback: legacy heuristic (largest profile-ish image) only if the
+  // stable portrait selector found nothing.
+  if (!info.photoUrl) {
+    const photoCandidates = Array.from(document.querySelectorAll("img"))
+      .map((img) => ({
+        img,
+        src: img.currentSrc || img.src || "",
+        area: (img.naturalWidth || img.width || 0) * (img.naturalHeight || img.height || 0),
+      }))
+      .filter((c) => c.src && /upwork|profile|avatar|photo/i.test(c.src) && !/icon|sprite|logo/i.test(c.src));
+    if (photoCandidates.length > 0) {
+      photoCandidates.sort((a, b) => b.area - a.area);
+      info.photoUrl = photoCandidates[0].src;
+    }
   }
 
   // ── Numeric stats (top metrics block) ──
@@ -2032,14 +2341,13 @@ function scrapeMessages() {
 
     // Read text from the link itself — Nuxt wraps the full sidebar card inside <a>.
     // Only walk up if the link is too short, and stop before a parent contains another room link.
-    let rowEl = link;
     let text = (link.innerText || "").trim();
     if (text.length < 20) {
       let node = link.parentElement;
       while (node && node !== document.body) {
         if (node.querySelectorAll('a[href*="/messages/rooms/"]').length > 1) break;
         const t = (node.innerText || "").trim();
-        if (t.length > text.length) { text = t; rowEl = node; }
+        if (t.length > text.length) { text = t; }
         if (text.length > 20) break;
         node = node.parentElement;
       }
@@ -2611,7 +2919,15 @@ function detectPageAndScrape() {
         console.log("[UT] Skip profile scrape: no canonical user yet");
         return;
       }
-      if (pageProfileId && pageProfileId !== data.canonicalUserId) {
+      // Fail closed: only scrape when the profile id in the URL is known
+      // AND matches the locked canonical (logged-in) user. A missing id
+      // must NOT fall through to a scrape — that let foreign profiles
+      // overwrite the logged-in account's record.
+      if (!pageProfileId) {
+        console.log("[UT] Skip profile scrape: could not determine profile id from URL", url);
+        return;
+      }
+      if (pageProfileId !== data.canonicalUserId) {
         console.log("[UT] Skip profile scrape: not own profile", pageProfileId, "vs", data.canonicalUserId);
         return;
       }
@@ -2811,6 +3127,7 @@ function runWithDelay(delayMs = 3000) {
     try {
       if (url.includes("/nx/find-work") || url.includes("/search/jobs") || url.includes("/ab/find-work")) {
         watchForJobPanel();
+        watchForFeedCardVerdicts();
       }
       if (url.includes("/nx/my-stats") || url.includes("/my-stats")) {
         watchForStatsChanges();
@@ -2852,6 +3169,7 @@ const navObserver = new MutationObserver(() => {
       console.log("[UT] SPA navigation:", window.location.href);
       lastUrl = window.location.href;
       lastJobPanelUrl = null;
+      _cardVerdictObserverStarted = false;
       document.getElementById("ut-criteria-panel")?.remove();
       maybeWatchApplyPage(window.location.href);
       runWithDelay(2000);

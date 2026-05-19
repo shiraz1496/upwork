@@ -471,11 +471,11 @@ export default function Dashboard() {
     await fetch(`/api/admin/accounts/${disableModal.accountId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isDisabled: !enabling, disabledReason: !enabling ? null : (disableReason.trim() || null) }),
+      body: JSON.stringify({ isDisabled: !enabling, disabledReason: enabling ? null : (disableReason.trim() || null) }),
     });
     setAccounts((prev) => prev.map((a) =>
       a.id === disableModal.accountId
-        ? { ...a, isDisabled: !enabling, disabledReason: !enabling ? null : (disableReason.trim() || null) }
+        ? { ...a, isDisabled: !enabling, disabledReason: enabling ? null : (disableReason.trim() || null) }
         : a
     ));
     setDisableModal(null);

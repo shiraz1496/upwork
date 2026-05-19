@@ -1,4 +1,4 @@
-const DEFAULT_BACKEND_URL = "http://localhost:3000";
+const DEFAULT_BACKEND_URL = "https://upwork-tracking-tool.vercel.app";
 
 console.log("[UT BG] Service worker started v5");
 
@@ -505,8 +505,11 @@ async function handleScrapedAccount(payload) {
     return { ok: false, note: "No canonical userId yet — visit any Upwork page first" };
   }
 
-  if (userId && userId !== fid) {
-    console.log("[UT BG] REJECTED: profile data from", userId, "does not match canonical", fid);
+  // Fail closed: only accept scraped profile data when its id is present
+  // AND matches the canonical user. An absent id is "unknown identity",
+  // which must be rejected — not silently filed under the canonical user.
+  if (!userId || userId !== fid) {
+    console.log("[UT BG] REJECTED: scraped profile id", userId || "(none)", "does not match canonical", fid);
     return { ok: false, note: "Profile does not belong to logged-in user" };
   }
 

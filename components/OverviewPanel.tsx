@@ -100,7 +100,7 @@ export function OverviewPanel({
   const deltas = useMemo(() => computeDeltas(accounts, range), [accounts, range]);
   const timeSeriesData = useMemo(() => computeTimeSeriesData(accounts, range), [accounts, range]);
   const funnelData = useMemo(() => computeFunnelData(aggregated), [aggregated]);
-  const timeline = useMemo(() => computeSnapshotTimeline(accounts, range), [accounts, range]);
+  // const timeline = useMemo(() => computeSnapshotTimeline(accounts, range), [accounts, range]);
 
   const rangeLabel = range === "7d" ? "7" : range === "30d" ? "30" : "90";
 
@@ -191,7 +191,7 @@ export function OverviewPanel({
       </div>
 
       {/* ── Snapshot timeline strip ──────────────────────────────────────── */}
-      {timeline.length >= 1 && <SnapshotTimeline entries={timeline} range={range} />}
+      {/* {timeline.length >= 1 && <SnapshotTimeline entries={timeline} range={range} />} */}
 
       <SectionTitle>Conversion Pipeline</SectionTitle>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -410,7 +410,7 @@ function StatCard({
       >
         {value}
       </span>
-      {isLoading ? (
+      {/* {isLoading ? (
         <div className="h-3 w-28 rounded bg-gray-200 animate-pulse" />
       ) : prevValue !== undefined && prevDate !== undefined ? (
         <div className="flex items-center gap-1.5 text-xs">
@@ -419,7 +419,7 @@ function StatCard({
           <span className="text-gray-300">·</span>
           <span className="text-gray-400">{prevDate} snapshot</span>
         </div>
-      ) : null}
+      ) : null} */}
       {sub && <span className="text-xs text-gray-400">{sub}</span>}
     </div>
   );
