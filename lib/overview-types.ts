@@ -71,6 +71,7 @@ export interface ProposalData {
   createdAt: string;
   capturedBy: { id: string; name: string } | null;
   submittedBy: { id: string; name: string } | null;
+  account?: { id: string; name: string };
 }
 
 export interface AlertData {

@@ -238,6 +238,7 @@ const ProposalDrawer = React.memo(function ProposalDrawer({ proposal, onClose }:
               <DrawerField label="Connects Spent" value={proposal.connectsSpent} />
               <DrawerField label="Bid Connects" value={proposal.bidConnects} />
               <DrawerField label="Profile Used" value={proposal.profileUsed} />
+              <DrawerField label="Account" value={proposal.account?.name ?? null} />
               <DrawerField label="Submitted" value={proposal.submittedAt ? fmtDateTime(proposal.submittedAt) : fmtDateTime(proposal.createdAt)} />
               <DrawerField label="Submitted By" value={proposal.submittedBy?.name ?? null} />
               <DrawerField label="Captured By" value={proposal.capturedBy?.name ?? null} />
@@ -558,7 +559,9 @@ export default function Dashboard() {
 
   const allProposals = useMemo(() => {
     const accs = selected ? [selected] : accounts;
-    const rows = accs.flatMap((a) => a.proposals || []);
+    const rows = accs.flatMap((a) =>
+      (a.proposals || []).map((p) => ({ ...p, account: { id: a.id, name: a.name } })),
+    );
     return memberFilter === "all" ? rows : rows.filter((p) => p.capturedBy?.id === memberFilter);
   }, [accounts, selected, memberFilter]);
 
@@ -1199,6 +1202,7 @@ export default function Dashboard() {
                                   <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Rate</th>
                                   <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Client</th>
                                   <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Profile</th>
+                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Account</th>
                                   <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Submitted By</th>
                                   <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Captured By</th>
                                   <th className="text-left px-4 py-3 text-xs tracking-wide">
@@ -1305,6 +1309,7 @@ export default function Dashboard() {
                                       </div>
                                     </td>
                                     <td className="px-4 py-3 text-gray-400 text-xs">{p.profileUsed || "—"}</td>
+                                    <td className="px-4 py-3 text-gray-500 text-xs">{p.account?.name || <span className="italic text-gray-400">—</span>}</td>
                                     <td className="px-4 py-3 text-gray-500 text-xs">{p.submittedBy?.name || <span className="italic text-gray-400">—</span>}</td>
                                     <td className="px-4 py-3 text-gray-500 text-xs">
                                       <div className="flex items-center gap-2">
@@ -1404,6 +1409,18 @@ export default function Dashboard() {
                             <span className="text-[11px] text-gray-400">
                               {fmtDateTime(p.submittedAt || p.createdAt)}
                             </span>
+                            {p.account?.name && (
+                              <>
+                                <span className="text-[11px] text-gray-300">·</span>
+                                <span className="text-[11px] text-gray-500 font-medium">{p.account.name}</span>
+                              </>
+                            )}
+                            {p.submittedBy?.name && (
+                              <>
+                                <span className="text-[11px] text-gray-300">·</span>
+                                <span className="text-[11px] text-gray-500">by {p.submittedBy.name}</span>
+                              </>
+                            )}
                           </div>
                           <h3 className="text-sm font-semibold text-gray-900 truncate">
                             {p.jobTitle || "Untitled"}
