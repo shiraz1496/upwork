@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
+import { DateRangePicker } from "react-date-range";
+import type { RangeKeyDict } from "react-date-range";
 import {
   BarChart,
   Bar,
@@ -22,6 +24,8 @@ import {
   computeTimeSeriesData,
   computeFunnelData,
   computeSnapshotTimeline,
+  todayKey,
+  daysAgoKey,
   fmt,
   type TimelineEntry,
 } from "@/lib/overview-aggregation";
@@ -69,32 +73,62 @@ const IconArrowDown = () => (
   </svg>
 );
 
+export type ActivityComparison = {
+  cur: { sent: number; viewed: number; interviewed: number; hired: number };
+  prev: { sent: number; viewed: number; interviewed: number; hired: number };
+  prevDate: string;
+} | null;
+
 export type OverviewPanelProps = {
   accounts: AccountData[];
   range: OverviewRange;
   onRangeChange: (r: OverviewRange) => void;
   showAccountComparison?: boolean;
+  activityComparison?: ActivityComparison;
+  isLoadingComparison?: boolean;
 };
+
+function pct(cur: number, prev: number): number | null {
+  return prev === 0 ? null : Math.round(((cur - prev) / prev) * 100);
+}
 
 export function OverviewPanel({
   accounts,
   range,
   onRangeChange,
   showAccountComparison = false,
+  activityComparison,
+  isLoadingComparison = false,
 }: OverviewPanelProps) {
+  const [timelineFrom, setTimelineFrom] = useState(() => daysAgoKey(7));
+  const [timelineTo, setTimelineTo] = useState(() => todayKey());
+
   const aggregated = useMemo(() => computeAggregated(accounts, range), [accounts, range]);
   const deltas = useMemo(() => computeDeltas(accounts, range), [accounts, range]);
   const timeSeriesData = useMemo(() => computeTimeSeriesData(accounts, range), [accounts, range]);
   const funnelData = useMemo(() => computeFunnelData(aggregated), [aggregated]);
-  const timeline = useMemo(() => computeSnapshotTimeline(accounts, range), [accounts, range]);
+  const timeline = useMemo(() => computeSnapshotTimeline(accounts, timelineFrom, timelineTo), [accounts, timelineFrom, timelineTo]);
+
+  const prevTimeline = useMemo(() => {
+    const fromDate = new Date(timelineFrom + "T00:00:00");
+    const toDate   = new Date(timelineTo   + "T00:00:00");
+    const durationMs = toDate.getTime() - fromDate.getTime() + 24 * 60 * 60 * 1000;
+    const prevToDate   = new Date(fromDate.getTime() - 24 * 60 * 60 * 1000);
+    const prevFromDate = new Date(prevToDate.getTime() - durationMs + 24 * 60 * 60 * 1000);
+    const fmt2 = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return computeSnapshotTimeline(accounts, fmt2(prevFromDate), fmt2(prevToDate));
+  }, [accounts, timelineFrom, timelineTo]);
 
   const rangeLabel = range === "7d" ? "7" : range === "30d" ? "30" : "90";
+
+  const cmp = activityComparison;
 
   return (
     <div className="py-6">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-base font-semibold text-gray-900">Proposal performance</h2>
+        <h2 className="text-base font-semibold text-gray-900">Proposal performance</h2>
           <p className="text-xs text-gray-400 mt-0.5">
             {aggregated.snapshotsInRange.length} snapshot
             {aggregated.snapshotsInRange.length !== 1 ? "s" : ""} captured in this range
@@ -116,28 +150,40 @@ export function OverviewPanel({
           label="Proposals Sent"
           value={fmt(aggregated.sent)}
           color={COLORS.blue}
-          delta={deltas?.sent}
+          delta={cmp ? pct(cmp.cur.sent, cmp.prev.sent) : null}
+          prevValue={cmp?.prev.sent}
+          prevDate={cmp?.prevDate}
+          isLoading={isLoadingComparison}
         />
         <StatCard
           label="Viewed"
           value={fmt(aggregated.viewed)}
           sub={`${aggregated.viewRate}% view rate`}
           color={COLORS.cyan}
-          delta={deltas?.viewed}
+          delta={cmp ? pct(cmp.cur.viewed, cmp.prev.viewed) : null}
+          prevValue={cmp?.prev.viewed}
+          prevDate={cmp?.prevDate}
+          isLoading={isLoadingComparison}
         />
         <StatCard
           label="Interviewed"
           value={fmt(aggregated.interviewed)}
           sub={`${aggregated.interviewRate}% of sent`}
           color={COLORS.purple}
-          delta={deltas?.interviewed}
+          delta={cmp ? pct(cmp.cur.interviewed, cmp.prev.interviewed) : null}
+          prevValue={cmp?.prev.interviewed}
+          prevDate={cmp?.prevDate}
+          isLoading={isLoadingComparison}
         />
         <StatCard
           label="Hired"
           value={fmt(aggregated.hired)}
           sub={`${aggregated.hireRate}% hire rate`}
           color={COLORS.green}
-          delta={deltas?.hired}
+          delta={cmp ? pct(cmp.cur.hired, cmp.prev.hired) : null}
+          prevValue={cmp?.prev.hired}
+          prevDate={cmp?.prevDate}
+          isLoading={isLoadingComparison}
         />
         {aggregated.jss !== null && (
           <StatCard
@@ -162,8 +208,15 @@ export function OverviewPanel({
         />
       </div>
 
-      {/* ── Snapshot Timeline strip ───────────────────────────────────────── */}
-      {/* <SnapshotTimeline entries={timeline} range={range} /> */}
+      {/* ── Snapshot timeline strip ──────────────────────────────────────── */}
+      <SnapshotTimeline
+        entries={timeline}
+        prevEntries={prevTimeline}
+        from={timelineFrom}
+        to={timelineTo}
+        onFromChange={setTimelineFrom}
+        onToChange={setTimelineTo}
+      />
 
       <SectionTitle>Conversion Pipeline</SectionTitle>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -272,7 +325,7 @@ export function OverviewPanel({
             </ResponsiveContainer>
           </div>
 
-          {timeSeriesData.some((d) => d.jss !== null) && (
+          {/* {timeSeriesData.some((d) => d.jss !== null) && (
             <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
               <h3 className="text-sm font-semibold text-gray-600 mb-4">JSS Trend</h3>
               <ResponsiveContainer width="100%" height={280}>
@@ -285,7 +338,7 @@ export function OverviewPanel({
                 </LineChart>
               </ResponsiveContainer>
             </div>
-          )}
+          )} */}
         </div>
       )}
 
@@ -332,18 +385,25 @@ export function OverviewPanel({
   );
 }
 
+
 function StatCard({
   label,
   value,
   sub,
   color,
   delta,
+  prevValue,
+  prevDate,
+  isLoading = false,
 }: {
   label: string;
   value: string | number;
   sub?: string;
   color?: string;
   delta?: number | null;
+  prevValue?: number;
+  prevDate?: string;
+  isLoading?: boolean;
 }) {
   const up = delta != null && delta > 0;
   const down = delta != null && delta < 0;
@@ -351,7 +411,9 @@ function StatCard({
     <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-2 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">{label}</span>
-        {delta != null && (
+        {isLoading ? (
+          <div className="h-4 w-10 rounded bg-gray-200 animate-pulse" />
+        ) : delta != null ? (
           <span
             className={`inline-flex items-center gap-0.5 text-[11px] font-medium px-1.5 py-0.5 rounded ${
               up
@@ -365,7 +427,7 @@ function StatCard({
             {down && <IconArrowDown />}
             {Math.abs(delta)}%
           </span>
-        )}
+        ) : null}
       </div>
       <span
         className="text-2xl font-semibold tracking-tight"
@@ -373,6 +435,16 @@ function StatCard({
       >
         {value}
       </span>
+      {/* {isLoading ? (
+        <div className="h-3 w-28 rounded bg-gray-200 animate-pulse" />
+      ) : prevValue !== undefined && prevDate !== undefined ? (
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className="text-gray-400">Previously</span>
+          <span className="font-semibold text-gray-600">{fmt(prevValue)}</span>
+          <span className="text-gray-300">·</span>
+          <span className="text-gray-400">{prevDate} snapshot</span>
+        </div>
+      ) : null} */}
       {sub && <span className="text-xs text-gray-400">{sub}</span>}
     </div>
   );
@@ -386,88 +458,263 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ─── Snapshot Timeline Strip ─────────────────────────────────────────────────
+// ─── Date key helpers (local timezone) ───────────────────────────────────────
 
-function SnapshotTimeline({ entries, range }: { entries: TimelineEntry[]; range: OverviewRange }) {
-  const rangeLabel = range === "7d" ? "7 days" : range === "30d" ? "30 days" : "90 days";
+function dateToKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
-  if (entries.length === 0) return null;
+function keyToDate(k: string): Date {
+  return new Date(k + "T00:00:00");
+}
+
+function fmtKeyLabel(k: string): string {
+  return keyToDate(k).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+// ─── DateRangePicker popover ──────────────────────────────────────────────────
+
+function TimelineDatePicker({ from, to, onFromChange, onToChange }: {
+  from: string;
+  to: string;
+  onFromChange: (v: string) => void;
+  onToChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const [selection, setSelection] = useState([
+    { startDate: keyToDate(from), endDate: keyToDate(to), key: "selection" },
+  ]);
+
+  // Sync if parent from/to change
+  useEffect(() => {
+    setSelection([{ startDate: keyToDate(from), endDate: keyToDate(to), key: "selection" }]);
+  }, [from, to]);
+
+  const handleChange = (item: RangeKeyDict) => {
+    setSelection([item.selection as { startDate: Date; endDate: Date; key: string }]);
+  };
+
+  const handleApply = () => {
+    const { startDate, endDate } = selection[0];
+    onFromChange(dateToKey(startDate));
+    onToChange(dateToKey(endDate ?? startDate));
+    setOpen(false);
+  };
+
+  const handleCancel = () => {
+    // Reset picker to currently applied range
+    setSelection([{ startDate: keyToDate(from), endDate: keyToDate(to), key: "selection" }]);
+    setOpen(false);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        handleCancel();
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open, from, to]);
 
   return (
-    <div className="mt-6 mb-2">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-          Snapshot History
-        </h2>
-        <span className="text-[11px] text-gray-400">
-          {entries.length} reading{entries.length !== 1 ? "s" : ""} · rolling {rangeLabel}
-        </span>
-      </div>
+    <div className="relative" ref={wrapperRef}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 hover:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-colors"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-gray-400 shrink-0">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+        <span className="text-gray-700">{fmtKeyLabel(from)}</span>
+        <span className="text-gray-400">–</span>
+        <span className="text-gray-700">{fmtKeyLabel(to)}</span>
+      </button>
 
-      {/* Scrollable row */}
-      <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
-        {entries.map((entry) => (
-          <div
-            key={entry.capturedAt}
-            className={`flex-shrink-0 rounded-xl border p-4 flex flex-col gap-2 min-w-[140px] transition-shadow ${
-              entry.isLatest
-                ? "border-teal-400 bg-teal-50 shadow-sm shadow-teal-100"
-                : "border-gray-200 bg-white hover:shadow-sm"
-            }`}
-          >
-            {/* Date + Latest badge */}
-            <div className="flex items-center justify-between gap-2">
-              <span
-                className={`text-xs font-semibold ${
-                  entry.isLatest ? "text-teal-700" : "text-gray-500"
-                }`}
-              >
-                {entry.date}
-              </span>
-              {entry.isLatest && (
-                <span className="text-[9px] font-bold uppercase tracking-wide bg-teal-500 text-white px-1.5 py-0.5 rounded-full">
-                  Latest
-                </span>
-              )}
-            </div>
-
-            {/* Metrics */}
-            <div className="flex flex-col gap-1">
-              <TimelineMetricRow label="Sent" value={entry.sent} color="#3b82f6" />
-              <TimelineMetricRow label="Viewed" value={entry.viewed} color="#06b6d4" />
-              <TimelineMetricRow label="Hired" value={entry.hired} color="#22c55e" />
-            </div>
-
-            {/* View rate */}
-            <div
-              className={`text-[11px] font-medium mt-0.5 ${
-                entry.isLatest ? "text-teal-600" : "text-gray-400"
-              }`}
+      {open && (
+        <div className="absolute right-0 top-full mt-1.5 z-50 rounded-xl overflow-hidden shadow-2xl border border-gray-200 bg-white">
+          <DateRangePicker
+            ranges={selection}
+            onChange={handleChange}
+            maxDate={new Date()}
+            months={1}
+            direction="horizontal"
+            showDateDisplay={false}
+            rangeColors={[COLORS.teal]}
+          />
+          <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-100">
+            <button
+              onClick={handleCancel}
+              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
             >
-              {entry.viewRate}% view rate
-            </div>
+              Cancel
+            </button>
+            <button
+              onClick={handleApply}
+              className="text-xs px-4 py-1.5 rounded-lg bg-teal-500 text-white font-medium hover:bg-teal-600 transition-colors"
+            >
+              Apply
+            </button>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function TimelineMetricRow({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: string;
-}) {
+// ─── Snapshot Timeline Strip ─────────────────────────────────────────────────
+
+function deltaPct(cur: number, prev: number): number | null {
+  if (prev === 0) return cur > 0 ? null : null;
+  return Math.round(((cur - prev) / prev) * 100);
+}
+
+function DeltaBadge({ cur, prev }: { cur: number; prev: number }) {
+  const d = deltaPct(cur, prev);
+  if (d === null || d === undefined || isNaN(d) ||d === 0) return null;
+  const up = d > 0;
+  const neutral = d === 0;
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-[11px] text-gray-400">{label}</span>
-      <span className="text-[13px] font-semibold" style={{ color }}>
-        {fmt(value)}
-      </span>
+    <span
+      className="inline-flex items-center gap-0.5 text-[9px] font-medium leading-none"
+      style={{ color: up ? "#14b8a6" : "#b54012" }}
+    >
+      {up ? "▲" : "▼"}
+      {Math.abs(d)}%
+    </span>
+  );
+}
+
+function SnapshotTimeline({ entries, prevEntries, from, to, onFromChange, onToChange }: {
+  entries: TimelineEntry[];
+  prevEntries: TimelineEntry[];
+  from: string;
+  to: string;
+  onFromChange: (v: string) => void;
+  onToChange: (v: string) => void;
+}) {
+  const globalMax = Math.max(...entries.map((e) => e.proposalsSentOnDay), 1);
+  const totalSent = entries.reduce((s, e) => s + e.proposalsSentOnDay, 0);
+  const totalViewed = entries.reduce((s, e) => s + e.proposalsViewedOnDay, 0);
+  const totalInterviewed = entries.reduce((s, e) => s + e.proposalsInterviewedOnDay, 0);
+  const prevSent = prevEntries.reduce((s, e) => s + e.proposalsSentOnDay, 0);
+  const prevViewed = prevEntries.reduce((s, e) => s + e.proposalsViewedOnDay, 0);
+  const prevInterviewed = prevEntries.reduce((s, e) => s + e.proposalsInterviewedOnDay, 0);
+
+  return (
+    <div className="mt-5 mb-1">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-3">
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Proposal history</h2>
+          <div className="flex items-center gap-4 text-[10px] text-gray-400">
+            {[
+              { color: COLORS.blue, label: "Sent", count: totalSent, prev: prevSent },
+              { color: COLORS.cyan, label: "Viewed", count: totalViewed, prev: prevViewed },
+              { color: COLORS.purple, label: "Interviewed", count: totalInterviewed, prev: prevInterviewed },
+            ].map(({ color, label, count, prev }) => (
+              <span key={label} className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-sm inline-block" style={{ background: color }} />
+                {label}
+                <span className="font-semibold text-gray-500">{count}</span>
+                </div>
+                <DeltaBadge cur={count} prev={prev} />
+              </span>
+            ))}
+          </div>
+        </div>
+        <TimelineDatePicker from={from} to={to} onFromChange={onFromChange} onToChange={onToChange} />
+      </div>
+      {entries.length === 0 && (
+        <p className="text-xs text-gray-400 py-4">No proposals submitted in this period.</p>
+      )}
+
+      <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+        {entries.map((entry) => {
+          const count = entry.proposalsSentOnDay;
+          const viewed = entry.proposalsViewedOnDay;
+          const interviewed = entry.proposalsInterviewedOnDay;
+          const barPct = Math.max((count / globalMax) * 100, count > 0 ? 6 : 0);
+          const dayLabel = new Date(entry.capturedAt).toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
+
+          return (
+            <div
+              key={entry.capturedAt}
+              className={`group flex-shrink-0 rounded-xl border flex flex-col gap-2.5 p-3 w-[116px] transition-all duration-150 ${
+                entry.isLatest
+                  ? "border-teal-300 bg-gradient-to-b from-teal-50 to-white shadow-sm shadow-teal-100/60"
+                  : "border-gray-200 bg-white shadow-sm hover:shadow-md hover:shadow-gray-100/80"
+              }`}
+            >
+              {/* Day + date */}
+              <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-0">
+                  <span className={`text-[9px] font-bold tracking-widest ${entry.isLatest ? "text-teal-400" : "text-gray-300"}`}>
+                    {dayLabel}
+                  </span>
+                  <span className={`text-[12px] font-bold leading-tight ${entry.isLatest ? "text-teal-700" : "text-gray-700"}`}>
+                    {entry.date}
+                  </span>
+                </div>
+                {entry.isLatest && (
+                  <span className="text-[8px] font-bold uppercase tracking-wide bg-teal-500 text-white px-1.5 py-0.5 rounded-full leading-none mt-0.5">
+                    Now
+                  </span>
+                )}
+              </div>
+
+              {/* Bars */}
+              <div className="flex items-end gap-0.5 h-12 px-0.5">
+                {[
+                  { val: count, color: COLORS.blue },
+                  { val: viewed, color: COLORS.cyan },
+                  { val: interviewed, color: COLORS.purple },
+                ].map(({ val, color }, bi) => {
+                  const pct = Math.max((val / globalMax) * 100, val > 0 ? 6 : 0);
+                  return (
+                    <div key={bi} className="flex-1 flex flex-col justify-end h-full relative">
+                      {val > 0 && (
+                        <span
+                          className="absolute left-0 right-0 text-center text-[8px] font-semibold leading-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                          style={{ bottom: `calc(${pct}% + 2px)`, color }}
+                        >
+                          {val}
+                        </span>
+                      )}
+                      <div className="w-full rounded-t-[3px]" style={{ height: `${pct}%`, background: color, opacity: 0.75 }} />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Divider */}
+              <div className={`h-px ${entry.isLatest ? "bg-teal-100" : "bg-gray-100"}`} />
+
+              {/* Counts */}
+              <div className="flex flex-col gap-0.5">
+                {[
+                  { val: count, label: "sent", color: COLORS.blue },
+                  { val: viewed, label: "viewed", color: COLORS.cyan },
+                  { val: interviewed, label: "interviewed", color: COLORS.purple },
+                ].map(({ val, label, color }) => (
+                  <div key={label} className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-sm inline-block shrink-0" style={{ background: color }} />
+                    <span className="text-[11px] font-semibold text-gray-700">{val}</span>
+                    <span className="text-[9px] text-gray-400">{label}</span>
+                  </div>
+                ))}
+              </div>
+
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

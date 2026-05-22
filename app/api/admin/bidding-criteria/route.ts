@@ -17,7 +17,7 @@ export async function GET() {
 
 const CreateBody = z.object({
   key: z.string().min(1).max(100),
-  operator: z.enum(["gte", "lte", "eq"]).default("gte"),
+  operator: z.enum(["gte", "lte", "eq", "neq"]).default("gte"),
   value: z.string().min(1).max(100),
   required: z.boolean().default(true),
   order: z.number().int().min(0).default(0),

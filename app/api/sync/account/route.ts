@@ -34,6 +34,8 @@ export const POST = withAttribution(async ({ req, member }) => {
       ok: true,
       accountId: account.id,
       member: { id: member.id, name: member.name },
+      isDisabled: account.isDisabled,
+      disabledReason: account.disabledReason ?? null,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

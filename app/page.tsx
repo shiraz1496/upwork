@@ -6,7 +6,8 @@ import { TeamStatsView } from "@/components/admin/TeamStatsView";
 import { CoveragePagesView } from "@/components/admin/CoveragePagesView";
 import { CoverageLeaderboardView } from "@/components/admin/CoverageLeaderboardView";
 import { BiddingCriteriaView } from "@/components/admin/BiddingCriteriaView";
-import { OverviewPanel } from "@/components/OverviewPanel";
+import { AccountManagementView } from "@/components/admin/AccountManagementView";
+import { OverviewPanel, type ActivityComparison } from "@/components/OverviewPanel";
 import { FreelancerProfileCard } from "@/components/FreelancerProfileCard";
 import type {
   AccountData,
@@ -416,7 +417,8 @@ type Tab =
   | "team-stats"
   | "coverage-pages"
   | "leaderboard"
-  | "bidding-criteria";
+  | "bidding-criteria"
+  | "accounts";
 
 // Tooltip style constants were moved to OverviewPanel
 
@@ -449,6 +451,8 @@ export default function Dashboard() {
   const [proposalFilter, setProposalFilter] = useState<string>("all");
   const [viewedFilter, setViewedFilter] = useState<"all" | "viewed" | "not_viewed" | "unscanned">("all");
   const [overviewRange, setOverviewRange] = useState<OverviewRange>("7d");
+  const [activityComparison, setActivityComparison] = useState<ActivityComparison>(null);
+  const [isLoadingComparison, setIsLoadingComparison] = useState(false);
   const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string; role: string }[]>([]);
   const [memberFilter, setMemberFilter] = useState<string>("all");
@@ -457,6 +461,28 @@ export default function Dashboard() {
   const [coverageAlertDismissed, setCoverageAlertDismissed] = useState(false);
   const [coverageAlertExpanded, setCoverageAlertExpanded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [disableModal, setDisableModal] = useState<{ accountId: string; accountName: string; current: boolean; reason: string | null } | null>(null);
+  const [disableReason, setDisableReason] = useState("");
+  const [disableSaving, setDisableSaving] = useState(false);
+
+  async function handleToggleDisabled() {
+    if (!disableModal) return;
+    setDisableSaving(true);
+    const enabling = disableModal.current; // currently disabled → we're re-enabling
+    await fetch(`/api/admin/accounts/${disableModal.accountId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isDisabled: !enabling, disabledReason: enabling ? null : (disableReason.trim() || null) }),
+    });
+    setAccounts((prev) => prev.map((a) =>
+      a.id === disableModal.accountId
+        ? { ...a, isDisabled: !enabling, disabledReason: enabling ? null : (disableReason.trim() || null) }
+        : a
+    ));
+    setDisableModal(null);
+    setDisableReason("");
+    setDisableSaving(false);
+  }
 
   function dismissCoverageAlert() {
     setCoverageAlertDismissed(true);
@@ -520,6 +546,21 @@ export default function Dashboard() {
     }, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    setActivityComparison(null);
+    setIsLoadingComparison(true);
+    const params = new URLSearchParams({ range: overviewRange });
+    if (memberFilter !== "all") params.set("memberId", memberFilter);
+    if (selectedAccountId !== "all") params.set("accountId", selectedAccountId);
+    fetch(`/api/admin/stats?${params}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.cur && data?.prevDate) setActivityComparison({ cur: data.cur, prev: data.prev, prevDate: data.prevDate });
+      })
+      .catch(() => {})
+      .finally(() => setIsLoadingComparison(false));
+  }, [overviewRange, memberFilter, selectedAccountId]);
 
   // Accounts that have at least one item captured by the selected member
   const accountsForMember = useMemo(() => {
@@ -746,7 +787,8 @@ export default function Dashboard() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   const ADMIN_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: "team", label: "Team", icon: <IconUsers /> },
+    { id: "accounts", label: "Accounts", icon: <IconUsers /> },
+    { id: "team", label: "Team", icon: <IconUser /> },
     { id: "team-stats", label: "Team Stats", icon: <IconChart /> },
     { id: "leaderboard", label: "Leaderboard", icon: <IconTrophy /> },
     { id: "coverage-pages", label: "Coverage Pages", icon: <IconCompass /> },
@@ -1026,6 +1068,8 @@ export default function Dashboard() {
                   range={overviewRange}
                   onRangeChange={setOverviewRange}
                   showAccountComparison={!selected}
+                  activityComparison={activityComparison}
+                  isLoadingComparison={isLoadingComparison}
                 />
               </>
             );
@@ -1663,6 +1707,17 @@ export default function Dashboard() {
             </div>
           )}
 
+          {/* ── Accounts Tab ─────────────────────────────────────────────────── */}
+          {activeTab === "accounts" && (
+            <AccountManagementView
+              accounts={accounts}
+              onToggleDisabled={(acc: AccountData) => {
+                setDisableModal({ accountId: acc.id, accountName: acc.name, current: acc.isDisabled, reason: acc.disabledReason ?? null });
+                setDisableReason(acc.disabledReason ?? "");
+              }}
+            />
+          )}
+
           {/* ── Team Tab ─────────────────────────────────────────────────────── */}
           {activeTab === "team" && <TeamView />}
 
@@ -1689,6 +1744,47 @@ export default function Dashboard() {
     {/* ── Mobile Sidebar Overlay ────────────────────────────────────────── */}
     {sidebarOpen && (
       <div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
+    )}
+
+    {/* ── Disable account modal ────────────────────────────────────────── */}
+    {disableModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setDisableModal(null)}>
+        <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+          <h2 className="text-base font-semibold text-gray-900 mb-1">
+            {disableModal.current ? "Re-enable account" : "Disable account"}
+          </h2>
+          <p className="text-sm text-gray-500 mb-4">
+            {disableModal.current
+              ? `Bidders will be allowed to bid on ${disableModal.accountName} again.`
+              : `Bidders will see a warning banner on all Upwork pages for ${disableModal.accountName}.`}
+          </p>
+          {!disableModal.current && (
+            <div className="mb-4">
+              <label className="text-xs font-medium text-gray-600 block mb-1">Reason <span className="text-gray-400 font-normal">(optional)</span></label>
+              <input
+                type="text"
+                placeholder="e.g. Client on hold, under review…"
+                value={disableReason}
+                onChange={(e) => setDisableReason(e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-400"
+                maxLength={300}
+              />
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button onClick={() => setDisableModal(null)} className="flex-1 text-sm py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
+              Cancel
+            </button>
+            <button
+              onClick={handleToggleDisabled}
+              disabled={disableSaving}
+              className={`flex-1 text-sm py-2 rounded-lg font-medium text-white transition-colors ${disableModal.current ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"} disabled:opacity-50`}
+            >
+              {disableSaving ? "Saving…" : disableModal.current ? "Re-enable" : "Disable"}
+            </button>
+          </div>
+        </div>
+      </div>
     )}
 
     {/* ── ChatGPT copy toast ────────────────────────────────────────────── */}

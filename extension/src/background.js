@@ -1,3 +1,4 @@
+// const DEFAULT_BACKEND_URL = "https://upwork-tracking-tool.vercel.app";
 const DEFAULT_BACKEND_URL = "http://localhost:3000";
 
 console.log("[UT BG] Service worker started v5");
@@ -202,8 +203,16 @@ async function pollPendingNudges() {
   if (tabs.length === 0) return;
   const target = tabs.find((t) => t.active) || tabs[0];
 
-  // Send one toast per account so the bidder sees each account's count separately
-  for (const entry of (data.byAccount ?? [])) {
+  // Only show nudges for the account currently logged into Upwork in this tab.
+  // canonicalUserId matches account.freelancerId stored in the nudge.
+  const local = await chrome.storage.local.get(["canonicalUserId"]);
+  const currentId = local.canonicalUserId || null;
+
+  const filtered = (data.byAccount ?? []).filter((entry) =>
+    !currentId || entry.freelancerId === currentId
+  );
+
+  for (const entry of filtered) {
     chrome.tabs
       .sendMessage(target.id, {
         type: "SHOW_NUDGE_SUMMARY",
@@ -252,6 +261,41 @@ async function checkUnrepliedMessages() {
   }
 
   await chrome.storage.local.set({ unrepliedMessages: unreplied });
+}
+
+async function handleGetFreelancerProfile() {
+  // Try the backend first (has skills/overview from profile page scrapes)
+  try {
+    const fid = await getFreelancerId();
+    const token = await getAuthToken();
+    const backendUrl = await getBackendUrl();
+    if (fid && token && backendUrl) {
+      const res = await fetch(
+        `${backendUrl}/api/freelancer-profile?freelancerId=${encodeURIComponent(fid)}`,
+        { headers: backendHeaders(token, backendUrl) }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data.profile) {
+          if (!data.profile.skills?.length) {
+            const local = await chrome.storage.local.get(["cachedFreelancerSkills", "lastAccountInfo"]);
+            const fallbackSkills = local.cachedFreelancerSkills || local.lastAccountInfo?.skills;
+            if (fallbackSkills?.length) data.profile.skills = fallbackSkills;
+          }
+          return { profile: data.profile };
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[UT BG] handleGetFreelancerProfile API error:", e);
+  }
+  // Fallback: local storage
+  const local = await chrome.storage.local.get(["lastAccountInfo", "cachedFreelancerSkills"]);
+  const profile = local.lastAccountInfo || null;
+  if (profile && !profile.skills?.length && local.cachedFreelancerSkills?.length) {
+    profile.skills = local.cachedFreelancerSkills;
+  }
+  return { profile };
 }
 
 async function fetchBiddingCriteria() {
@@ -412,6 +456,8 @@ const handleMessage = safeAsync(async (message) => {
       const criteria = await fetchBiddingCriteria();
       return { criteria };
     }
+    case "GET_FREELANCER_PROFILE":
+      return handleGetFreelancerProfile();
     case "GET_STATUS": {
       const data = await chrome.storage.local.get([
         "lastSync", "lastAccountInfo", "syncCount", "backendUrl",
@@ -454,19 +500,41 @@ async function handleAccountDetected(payload) {
 
   // Save as the canonical ID, merge with existing info
   const merged = { ...existing.lastAccountInfo, ...payload };
-  await chrome.storage.local.set({
-    canonicalUserId: userId,
-    lastAccountInfo: merged,
-  });
+  // Never overwrite previously-captured skills with an empty scrape result
+  if (!merged.skills?.length && existing.lastAccountInfo?.skills?.length) {
+    merged.skills = existing.lastAccountInfo.skills;
+  }
+  const storageUpdate = { canonicalUserId: userId, lastAccountInfo: merged };
+  // Persist skills to a dedicated key so they survive profile re-scrapes that miss them
+  if (merged.skills?.length) {
+    storageUpdate.cachedFreelancerSkills = merged.skills;
+  }
+  await chrome.storage.local.set(storageUpdate);
 
   // Only include name if we have a REAL name (not a userId fallback)
   const realName = name || username || existing.lastAccountInfo?.name || null;
 
   // Sync account to backend
-  return syncToBackend("/api/sync/account", {
+  const syncResult = await syncToBackend("/api/sync/account", {
     freelancerId: userId,
     ...(realName ? { name: realName } : {}),
   });
+
+  // Store disable status and notify all Upwork tabs
+  const isDisabled = syncResult?.result?.isDisabled ?? false;
+  const disabledReason = syncResult?.result?.disabledReason ?? null;
+  await chrome.storage.local.set({ accountDisabled: isDisabled, accountDisabledReason: disabledReason });
+
+  const tabs = await chrome.tabs.query({ url: "https://www.upwork.com/*" });
+  for (const tab of tabs) {
+    chrome.tabs.sendMessage(tab.id, {
+      type: "ACCOUNT_DISABLE_STATUS",
+      isDisabled,
+      reason: disabledReason,
+    }).catch(() => {});
+  }
+
+  return syncResult;
 }
 
 // ════════════════════════════════════════════════════
@@ -489,8 +557,11 @@ async function handleScrapedAccount(payload) {
     return { ok: false, note: "No canonical userId yet — visit any Upwork page first" };
   }
 
-  if (userId && userId !== fid) {
-    console.log("[UT BG] REJECTED: profile data from", userId, "does not match canonical", fid);
+  // Fail closed: only accept scraped profile data when its id is present
+  // AND matches the canonical user. An absent id is "unknown identity",
+  // which must be rejected — not silently filed under the canonical user.
+  if (!userId || userId !== fid) {
+    console.log("[UT BG] REJECTED: scraped profile id", userId || "(none)", "does not match canonical", fid);
     return { ok: false, note: "Profile does not belong to logged-in user" };
   }
 

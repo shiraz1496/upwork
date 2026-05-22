@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OverviewPanel } from "@/components/OverviewPanel";
 import { FreelancerProfileCard } from "@/components/FreelancerProfileCard";
+import { GuideView } from "@/components/GuideView";
 import type { AccountData, OverviewRange, ProposalData } from "@/lib/overview-types";
 
 type CoveragePayload = {
@@ -26,7 +27,7 @@ type NotesPayload = {
   notes: Note[];
 };
 
-type MeTab = "overview" | "profile" | "coverage" | "notes" | "untracked";
+type MeTab = "overview" | "profile" | "coverage" | "notes" | "untracked" | "guide";
 
 const iconProps = {
   viewBox: "0 0 24 24",
@@ -75,6 +76,12 @@ const IconFileX = () => (
     <line x1="14" y1="13" x2="10" y2="17" />
   </svg>
 );
+const IconBook = () => (
+  <svg {...iconProps}>
+    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+  </svg>
+);
 
 
 export default function MePage() {
@@ -90,6 +97,7 @@ export default function MePage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
   const [activeTab, setActiveTab] = useState<MeTab>("overview");
   const [markingRead, setMarkingRead] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const accountsRef = useRef<AccountData[] | null>(null);
   const selectedAccountIdRef = useRef<string>("all");
@@ -249,12 +257,13 @@ export default function MePage() {
       icon: <IconFileX />,
       count: untrackedProposals.length > 0 ? untrackedProposals.length : null,
     },
+    { id: "guide", label: "Extension Guide", icon: <IconBook />, count: null },
   ];
   const activeTabLabel = TABS.find((t) => t.id === activeTab)?.label ?? "Overview";
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 flex">
-      <aside className="w-60 bg-white border-r border-gray-200 flex flex-col sticky top-0 h-screen shrink-0">
+    <div className="min-h-screen bg-gray-50 text-gray-900 flex overflow-x-hidden">
+      <aside className={`fixed lg:sticky top-0 left-0 h-screen w-64 lg:w-60 bg-white border-r border-gray-200 flex flex-col shrink-0 transition-transform duration-200 z-50 lg:z-auto ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
         <div className="h-14 px-5 flex items-center border-b border-gray-200">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-teal-500 text-white flex items-center justify-center text-xs font-bold">
@@ -263,13 +272,13 @@ export default function MePage() {
             <span className="text-sm font-semibold text-gray-900 tracking-tight">Upwork Tracker</span>
           </div>
         </div>
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {TABS.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => { setActiveTab(tab.id); setSidebarOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
                   isActive
                     ? "bg-teal-50 text-teal-700 font-medium"
@@ -301,6 +310,7 @@ export default function MePage() {
               onChange={(e) => setSelectedAccountId(e.target.value)}
               className="w-full mt-1.5 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
             >
+              <option value="all">All accounts</option>
               {myAccounts.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -327,16 +337,27 @@ export default function MePage() {
       </aside>
 
       <main className="flex-1 min-w-0 flex flex-col">
-        <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-gray-200 h-14 flex items-center justify-between px-6">
-          <div>
-            <h1 className="text-sm font-semibold text-gray-900">{activeTabLabel}</h1>
-            <p className="text-[11px] text-gray-400">
-              {memberName ? `Signed in as ${memberName}` : ""}
-            </p>
+        <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-gray-200 h-14 flex items-center justify-between px-4 lg:px-6">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
+              aria-label="Open menu"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </button>
+            <div>
+              <h1 className="text-sm font-semibold text-gray-900">{activeTabLabel}</h1>
+              <p className="text-[11px] text-gray-400">
+                {memberName ? `Signed in as ${memberName}` : ""}
+              </p>
+            </div>
           </div>
         </header>
 
-        <div className="flex flex-col gap-2 mx-6 mt-4 empty:hidden">
+        <div className="flex flex-col gap-2 mx-4 lg:mx-6 mt-4 empty:hidden">
           {coverage && coverage.coveragePct < 80 && (
             <div className="px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-center gap-2">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 shrink-0">
@@ -359,7 +380,7 @@ export default function MePage() {
           )}
         </div>
 
-        <div className="flex-1 px-6 pb-6 overflow-auto">
+        <div className="flex-1 px-4 lg:px-6 pb-6 overflow-auto">
           {activeTab === "overview" &&
             (accounts === null ? (
               <div className="py-6 text-sm text-gray-500">Loading…</div>
@@ -636,6 +657,8 @@ export default function MePage() {
             </section>
           )}
 
+          {activeTab === "guide" && <GuideView />}
+
           {activeTab === "untracked" && (
             <section className="mt-6">
               <div className="flex items-center justify-between mb-4">
@@ -690,6 +713,10 @@ export default function MePage() {
           )}
         </div>
       </main>
+
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
     </div>
   );
 }

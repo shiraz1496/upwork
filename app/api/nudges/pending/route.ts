@@ -21,7 +21,7 @@ export const GET = withAttribution(async ({ member }) => {
         select: {
           jobTitle: true,
           jobUrl: true,
-          account: { select: { name: true } },
+          account: { select: { name: true, freelancerId: true } },
         },
       },
     },
@@ -37,6 +37,7 @@ export const GET = withAttribution(async ({ member }) => {
 
   const byAccount = Array.from(accountMap.entries()).map(([accountName, acctNudges]) => ({
     accountName,
+    freelancerId: acctNudges[0].proposal?.account?.freelancerId ?? null,
     count: acctNudges.length,
     ids: acctNudges.map((n) => n.id),
     single:

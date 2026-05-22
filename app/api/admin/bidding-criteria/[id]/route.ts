@@ -5,7 +5,7 @@ import { requireAdmin, adminErrorResponse } from "@/lib/admin-auth";
 
 const PatchBody = z.object({
   key: z.string().min(1).max(100).optional(),
-  operator: z.enum(["gte", "lte", "eq"]).optional(),
+  operator: z.enum(["gte", "lte", "eq", "neq"]).optional(),
   value: z.string().min(1).max(100).optional(),
   required: z.boolean().optional(),
   active: z.boolean().optional(),
