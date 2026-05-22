@@ -54,10 +54,13 @@ export type TimeSeriesRow = {
 export type TimelineEntry = {
   date: string;           // "Apr 28"
   capturedAt: string;     // raw ISO for sorting
-  sent: number;
+  sent: number;           // cumulative (7d window) — kept for view rate calculation
   viewed: number;
   interviewed: number;
   hired: number;
+  proposalsSentOnDay: number; // exact count from proposals.submittedAt for this calendar day
+  proposalsViewedOnDay: number; // proposals with viewedByClient=true, bucketed by submittedAt day
+  proposalsInterviewedOnDay: number; // proposals in active/interviewing section
   connectsBalance: number | null;
   jss: number | null;
   viewRate: number;
@@ -251,68 +254,63 @@ export function computeTimeSeriesData(
     });
 }
 
-// ─── Snapshot Timeline ────────────────────────────────────────────────────────
-// Returns one entry per calendar day, summed across all accounts (each account
-// contributes its latest snapshot for that day), sorted ascending.
+function localDateKey(isoStr: string): string {
+  const d = new Date(isoStr);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Proposal-driven timeline: one card per day with proposals submitted.
+// from/to are YYYY-MM-DD strings in local timezone (matching how dates display).
 export function computeSnapshotTimeline(
   accounts: AccountData[],
-  range: OverviewRange,
+  from: string,
+  to: string,
 ): TimelineEntry[] {
-  type DayAgg = {
-    sent: number; viewed: number; interviewed: number; hired: number;
-    connectsBalance: number | null; jss: number | null; latestCapturedAt: string;
-  };
-  const byDay = new Map<string, DayAgg>();
+  const isInterviewed = (section: string | null) =>
+    section != null && /active|offers?|interviewing/i.test(section);
 
+  const byDay = new Map<string, { sent: number; viewed: number; interviewed: number }>();
   for (const account of accounts) {
-    // Deduplicate to latest snapshot per UTC day for this account
-    const acctByDay = new Map<string, SnapshotSummary>();
-    for (const s of account.snapshots.filter((s) => s.range === range)) {
-      const day = new Date(s.capturedAt).toISOString().slice(0, 10);
-      const existing = acctByDay.get(day);
-      if (!existing || new Date(s.capturedAt) > new Date(existing.capturedAt)) {
-        acctByDay.set(day, s);
-      }
-    }
-
-    // Sum this account's daily values into the global aggregation
-    for (const [day, s] of acctByDay) {
-      const existing = byDay.get(day);
-      if (existing) {
-        existing.sent += s.sent;
-        existing.viewed += s.viewed;
-        existing.interviewed += s.interviewed;
-        existing.hired += s.hired;
-        existing.connectsBalance = (existing.connectsBalance ?? 0) + (s.connectsBalance ?? 0);
-        existing.jss = s.jss ?? existing.jss;
-        if (s.capturedAt > existing.latestCapturedAt) existing.latestCapturedAt = s.capturedAt;
-      } else {
-        byDay.set(day, {
-          sent: s.sent, viewed: s.viewed, interviewed: s.interviewed, hired: s.hired,
-          connectsBalance: s.connectsBalance, jss: s.jss, latestCapturedAt: s.capturedAt,
-        });
-      }
+    for (const p of account.proposals) {
+      if (!p.submittedAt) continue;
+      const day = localDateKey(p.submittedAt);
+      if (day < from || day > to) continue;
+      const existing = byDay.get(day) ?? { sent: 0, viewed: 0, interviewed: 0 };
+      existing.sent += 1;
+      if (p.viewedByClient || isInterviewed(p.section)) existing.viewed += 1;
+      if (isInterviewed(p.section)) existing.interviewed += 1;
+      byDay.set(day, existing);
     }
   }
 
   const sorted = Array.from(byDay.entries()).sort(([a], [b]) => a.localeCompare(b));
 
-  return sorted.map(([day, d], i) => ({
-    date: new Date(day + "T00:00:00Z").toLocaleDateString("en-US", {
+  return sorted.map(([day, counts], i) => ({
+    date: new Date(day + "T00:00:00").toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
-      timeZone: "UTC",
     }),
-    capturedAt: d.latestCapturedAt,
-    sent: d.sent,
-    viewed: d.viewed,
-    interviewed: d.interviewed,
-    hired: d.hired,
-    connectsBalance: d.connectsBalance,
-    jss: d.jss,
-    viewRate: d.sent > 0 ? Math.round((d.viewed / d.sent) * 1000) / 10 : 0,
+    capturedAt: day + "T12:00:00",
+    sent: counts.sent,
+    viewed: counts.viewed,
+    interviewed: counts.interviewed,
+    hired: 0,
+    proposalsSentOnDay: counts.sent,
+    proposalsViewedOnDay: counts.viewed,
+    proposalsInterviewedOnDay: counts.interviewed,
+    connectsBalance: null,
+    jss: null,
+    viewRate: counts.sent > 0 ? Math.round((counts.viewed / counts.sent) * 1000) / 10 : 0,
     isLatest: i === sorted.length - 1,
   }));
+}
+
+export function todayKey(): string {
+  return localDateKey(new Date().toISOString());
+}
+
+export function daysAgoKey(n: number): string {
+  return localDateKey(new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString());
 }
 
 export function computeFunnelData(aggregated: Aggregated) {
@@ -352,6 +350,7 @@ export function applyMemberFilter(
   return accounts.map((a) => ({
     ...a,
     snapshots: a.snapshots.filter((s) => s.capturedBy?.id === memberId),
+    proposals: a.proposals.filter((p) => p.capturedBy?.id === memberId),
   }));
 }
 

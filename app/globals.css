@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "react-date-range/dist/styles.css";
+@import "react-date-range/dist/theme/default.css";
 
 :root {
   --background: #ffffff;
