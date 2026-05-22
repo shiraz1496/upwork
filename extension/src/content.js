@@ -84,11 +84,17 @@ function extractNumber(text) {
   return isNaN(num) ? null : num;
 }
 
-function sendToBackground(type, data) {
+function sendToBackground(type, data, _retries = 1) {
   console.log("[UT] Sending:", type, JSON.stringify(data).slice(0, 300));
   chrome.runtime.sendMessage({ type, payload: data }, (r) => {
     if (chrome.runtime.lastError) {
-      console.error("[UT] Send error:", chrome.runtime.lastError.message);
+      const msg = chrome.runtime.lastError.message ?? "";
+      if (msg.includes("message channel closed") && _retries > 0) {
+        // Service worker was idle and got terminated — it's waking up now, retry once
+        setTimeout(() => sendToBackground(type, data, _retries - 1), 500);
+      } else {
+        console.warn("[UT] Send error:", msg);
+      }
     } else {
       console.log("[UT] Response:", JSON.stringify(r).slice(0, 200));
     }
@@ -106,6 +112,12 @@ const CRITERIA_FIELD_LABELS = {
   client_hires:            "Client Hires",
   client_active_hires:     "Client Active Hires",
   client_payment_verified: "Payment Verified",
+  client_country:          "Client Country",
+  job_interviewing:        "Interviewing",
+  job_proposals:           "Proposals",
+  job_hires:               "Hires (this job)",
+  job_last_viewed:         "Last Viewed (hours ago)",
+  job_skill_match:         "Skill Match",
 };
 
 function parseCurrencyToNumber(str) {
@@ -128,6 +140,12 @@ function getJobFieldValue(key, job) {
     case "client_hires":            return job.clientHires ?? null;
     case "client_active_hires":     return job.clientActiveHires ?? null;
     case "client_payment_verified": return job.clientPaymentVerified ?? null;
+    case "client_country":          return job.clientCountry ?? null;
+    case "job_interviewing":        return job.interviewing ?? null;
+    case "job_proposals":           return job.jobProposals ?? null;
+    case "job_hires":               return job.jobHires ?? null;
+    case "job_last_viewed":         return job.lastViewedHours ?? null;
+    case "job_skill_match":         return job.skillMatchCount ?? null;
     default:                        return null;
   }
 }
@@ -136,10 +154,16 @@ function checkCriterion(criterion, job) {
   const actual = getJobFieldValue(criterion.key, job);
   if (actual === null || actual === undefined) return "unknown";
   if (criterion.key === "client_payment_verified") return actual === true ? "pass" : "fail";
+  if (criterion.key === "client_country") {
+    const blocked = criterion.value.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const matches = blocked.some((b) => b === String(actual).toLowerCase());
+    return criterion.operator === "neq" ? (matches ? "fail" : "pass") : (matches ? "pass" : "fail");
+  }
   const threshold = parseFloat(criterion.value);
   if (isNaN(threshold)) return "unknown";
   const pass = criterion.operator === "gte" ? actual >= threshold
              : criterion.operator === "lte" ? actual <= threshold
+             : criterion.operator === "neq" ? actual !== threshold
              : actual === threshold;
   return pass ? "pass" : "fail";
 }
@@ -147,7 +171,11 @@ function checkCriterion(criterion, job) {
 function formatCriterionLabel(c) {
   const label = CRITERIA_FIELD_LABELS[c.key] || c.key;
   if (c.key === "client_payment_verified") return label;
-  const op = c.operator === "gte" ? "≥" : c.operator === "lte" ? "≤" : "=";
+  if (c.key === "client_country") {
+    const countries = c.value.split(",").map((s) => s.trim()).filter(Boolean);
+    return `${label} ≠ ${countries.join(", ")}`;
+  }
+  const op = c.operator === "gte" ? "≥" : c.operator === "lte" ? "≤" : c.operator === "neq" ? "≠" : "=";
   const val = c.key === "client_total_spent" ? `$${Number(c.value).toLocaleString()}`
             : c.key === "client_hire_rate"   ? `${c.value}%`
             : c.key === "client_rating"      ? `${c.value}/5`
@@ -155,11 +183,27 @@ function formatCriterionLabel(c) {
   return `${label} ${op} ${val}`;
 }
 
-async function evaluateAndShowCriteria(job, isRetry = false) {
+async function evaluateAndShowCriteria(job, isRetry = false, generation = _jobEvalGeneration) {
   try {
     const data = await new Promise((resolve) => chrome.runtime.sendMessage({ type: "GET_BIDDING_CRITERIA" }, resolve));
     const criteria = (data && data.criteria) || [];
-    if (criteria.length === 0) return;
+    if (criteria.length === 0) { document.getElementById("ut-criteria-panel")?.remove(); return; }
+
+    // Abort if the user already switched to a different job
+    if (generation !== _jobEvalGeneration) return;
+
+    // Compute skill match count if the criterion is configured
+    if (criteria.some((c) => c.key === "job_skill_match")) {
+      const profile = await getFreelancerProfile();
+      if (generation !== _jobEvalGeneration) return;
+      const freelancerSkills = profile?.skills || [];
+      const jobSkills = job.skills || [];
+      const freelancerLower = new Set(freelancerSkills.map((s) => s.toLowerCase()));
+      job.skillMatchCount = jobSkills.filter((s) => freelancerLower.has(s.toLowerCase())).length;
+      console.log("[UT] Skill match:", job.skillMatchCount, "/", jobSkills.length,
+        "— job:", jobSkills, "freelancer:", freelancerSkills);
+    }
+
     const results = criteria.map((c) => ({ ...c, status: checkCriterion(c, job) }));
     injectCriteriaPanel(job, results);
 
@@ -168,14 +212,15 @@ async function evaluateAndShowCriteria(job, isRetry = false) {
     const hasRequiredUnknown = results.some((r) => r.required && r.status === "unknown");
     if (hasRequiredUnknown && !isRetry) {
       const jobUrlSnapshot = job.url;
+      const gen = generation;
       setTimeout(async () => {
         try {
-          // Only retry if the same job panel is still open
+          if (gen !== _jobEvalGeneration) return;
           if (!isJobPanelOpen()) return;
           const currentUrl = findJobUrl(findJobContainer());
           if (currentUrl !== jobUrlSnapshot) return;
           const retryJob = await scrapeJobData();
-          if (retryJob?.title) evaluateAndShowCriteria(retryJob, true).catch(() => {});
+          if (retryJob?.title) evaluateAndShowCriteria(retryJob, true, gen).catch(() => {});
         } catch (e) { console.warn("[UT] criteria retry error:", e); }
       }, 5000);
     }
@@ -184,26 +229,151 @@ async function evaluateAndShowCriteria(job, isRetry = false) {
   }
 }
 
+function buildChatGPTPrompt(job, results, profile) {
+  const line = (label, val) => val != null && val !== "" ? `- **${label}:** ${val}` : null;
+  const yesNo = (v) => v === true ? "Yes" : v === false ? "No" : "Unknown";
+
+  const jobLines = [
+    line("Title",             job.title),
+    line("Type",              job.jobType),
+    line("Budget",            job.budget),
+    line("Experience Level",  job.experienceLevel),
+    line("Posted",            job.postedTime),
+    line("Location",          job.jobLocation || "Worldwide"),
+    line("Connects Required", job.connectsRequired),
+    line("Project Type",      job.projectType),
+    line("Contract-to-Hire",  job.contractToHire ? "Yes" : null),
+  ].filter(Boolean).join("\n");
+
+  const clientLines = [
+    line("Payment Verified",  yesNo(job.clientPaymentVerified)),
+    line("Rating",            job.clientRating ? `${job.clientRating}/5` : null),
+    line("Reviews",           job.clientReviews),
+    line("Country",           job.clientCountry),
+    line("Total Spent",       job.clientSpent),
+    line("Hire Rate",         job.clientHireRate != null ? `${job.clientHireRate}%` : null),
+    line("Jobs Posted",       job.clientJobsPosted),
+    line("Hires",             job.clientHires),
+    line("Active Hires",      job.clientActiveHires),
+    line("Industry",          job.clientIndustry),
+    line("Company Size",      job.clientCompanySize),
+    line("Member Since",      job.clientMemberSince),
+  ].filter(Boolean).join("\n");
+
+  const activityLines = [
+    line("Proposals",             job.jobProposals    != null ? String(job.jobProposals)              : null),
+    line("Interviewing",          job.interviewing    != null ? String(job.interviewing)               : null),
+    line("Hires (this job)",      job.jobHires        != null ? String(job.jobHires)                   : null),
+    line("Last Viewed by Client", job.lastViewedHours != null ? `${job.lastViewedHours} hour(s) ago`   : null),
+  ].filter(Boolean).join("\n");
+
+  const skillsList = job.skills?.length ? job.skills.join(", ") : "Not listed";
+
+  const verdictResult = (() => {
+    const reqFailed  = results.filter((r) => r.required && r.status === "fail");
+    const reqUnknown = results.filter((r) => r.required && r.status === "unknown");
+    if (reqFailed.length > 0) return "Not Recommended";
+    if (reqUnknown.length > 0) return "Uncertain (some required data not visible)";
+    return "Worth Applying";
+  })();
+
+  const criteriaLines = results.map((r) => {
+    const icon = r.status === "pass" ? "✓" : r.status === "fail" ? "✗" : "?";
+    return `${icon} ${formatCriterionLabel(r)}${r.required ? " [required]" : ""}: ${r.status.toUpperCase()}`;
+  }).join("\n");
+
+  const profileLines = profile ? [
+    profile.name       ? `**Name:** ${profile.name}` : null,
+    profile.title      ? `**Title:** ${profile.title}` : null,
+    profile.skills?.length ? `**Skills:** ${profile.skills.join(", ")}` : null,
+    profile.overview   ? `**Overview:** ${profile.overview.slice(0, 600)}` : null,
+    profile.hourlyRate ? `**Hourly Rate:** ${profile.hourlyRate}/hr` : null,
+    profile.totalJobs  ? `**Total Jobs Completed:** ${profile.totalJobs}` : null,
+    profile.jss        ? `**Job Success Score:** ${profile.jss}%` : null,
+  ].filter(Boolean) : [];
+  const profileSection = profileLines.length > 0
+    ? profileLines.join("\n")
+    : "_Profile not loaded yet. Visit your Upwork profile page once so the extension can load your skills._";
+
+  return `You are an unbiased Upwork bidding advisor. Your job is to give an honest, objective assessment of whether this freelancer should bid on this job. Do NOT lean toward recommending just to be encouraging — if the job looks bad, say so clearly.
+
+---
+
+## JOB DETAILS
+
+${jobLines}
+
+**Description:**
+${job.description || "Not available"}
+
+**Required Skills:** ${skillsList}
+
+## CLIENT INFO
+
+${clientLines || "Not available"}
+
+## JOB ACTIVITY
+
+${activityLines || "Not available"}
+
+**Job URL:** ${job.url || "N/A"}
+
+## FREELANCER PROFILE
+
+${profileSection}
+
+## PRE-CHECKED CRITERIA (system verdict: ${verdictResult})
+
+${criteriaLines || "No criteria configured"}
+
+---
+
+## YOUR TASK
+
+Analyze everything above and answer: **Should this freelancer bid on this job?**
+
+**Your response MUST start with one of these lines exactly:**
+> ✅ RECOMMENDED — [one-line reason]
+> ❌ NOT RECOMMENDED — [one-line reason]
+> ⚠️ MAYBE — [one-line reason]
+
+Then provide a brief breakdown covering:
+1. **Skill match** — how well does the freelancer's background fit the job?
+2. **Client reliability** — what does the client's history say (payment verified, rating, spend, hire rate)?
+3. **Competition level** — is the proposal/interviewing count favorable or crowded?
+4. **Budget vs scope** — is the pay realistic for the work described?
+5. **Client engagement** — when did the client last view the job? Are they active?
+6. **Red flags** — anything suspicious or risky?
+7. **Green flags** — anything that makes this a strong opportunity?
+
+Be direct and honest. If the job is not a good fit, say so. The freelancer is relying on your honest opinion to make a good decision.`;
+}
+
 function injectCriteriaPanel(job, results) {
   document.getElementById("ut-criteria-panel")?.remove();
 
-  const requiredFailed   = results.filter((r) => r.required && r.status === "fail");
-  const requiredUnknown  = results.filter((r) => r.required && r.status === "unknown");
-  const hasUnknown       = results.some((r) => r.status === "unknown");
-  const allRequiredPassed = requiredFailed.length === 0 && requiredUnknown.length === 0;
-  const stillLoading      = requiredFailed.length === 0 && requiredUnknown.length > 0;
+  const requiredFailed    = results.filter((r) => r.required && r.status === "fail");
+  const hasUnknown        = results.some((r) => r.status === "unknown");
+  // Unknowns are treated as "not available on page" — only hard fails block the verdict
+  const allRequiredPassed = requiredFailed.length === 0;
 
-  const verdictColor = stillLoading ? "#92400e" : allRequiredPassed ? "#108a00" : "#dc2626";
-  const verdictLabel = stillLoading ? "⏳ Loading client data..." : allRequiredPassed ? "✓ Worth applying" : "✗ Not recommended";
-  const verdictBg    = stillLoading ? "#fffbeb" : allRequiredPassed ? "#f0fdf4" : "#fef2f2";
+  const verdictColor = allRequiredPassed ? "#108a00" : "#dc2626";
+  const verdictLabel = allRequiredPassed ? "✓ Worth applying" : "✗ Not recommended";
+  const verdictBg    = allRequiredPassed ? "#f0fdf4" : "#fef2f2";
 
-  const rows = results.map((r) => {
-    const icon       = r.status === "pass" ? "✓" : r.status === "fail" ? "✗" : "?";
-    const iconColor  = r.status === "pass" ? "#108a00" : r.status === "fail" ? "#dc2626" : "#9ca3af";
+  const sortedResults = [
+    ...results.filter((r) => r.status !== "unknown"),
+    ...results.filter((r) => r.status === "unknown"),
+  ];
+
+  const rows = sortedResults.map((r) => {
+    const icon      = r.status === "pass" ? "✓" : r.status === "fail" ? "✗" : "?";
+    const iconColor = r.status === "pass" ? "#108a00" : r.status === "fail" ? "#dc2626" : "#9ca3af";
+    const iconBg    = r.status === "pass" ? "rgba(16,138,0,0.08)" : r.status === "fail" ? "rgba(220,38,38,0.08)" : "rgba(156,163,175,0.12)";
     const labelColor = r.status === "fail" && r.required ? "#dc2626" : "#374151";
     return `
       <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #f3f4f6;">
-        <span style="font-size:14px;font-weight:700;color:${iconColor};width:16px;text-align:center;flex-shrink:0;">${icon}</span>
+        <span style="font-size:12px;font-weight:700;color:${iconColor};width:20px;height:20px;border-radius:50%;background:${iconBg};display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">${icon}</span>
         <div style="flex:1;min-width:0;">
           <div style="font-size:12px;font-weight:${r.required ? "600" : "400"};color:${labelColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${formatCriterionLabel(r)}">${formatCriterionLabel(r)}</div>
           ${r.status === "unknown" ? '<div style="font-size:11px;color:#9ca3af;">Not visible on page</div>' : ""}
@@ -215,7 +385,7 @@ function injectCriteriaPanel(job, results) {
   const panel = document.createElement("div");
   panel.id = "ut-criteria-panel";
   panel.setAttribute("style", [
-    "position:fixed", "right:20px", "top:80px", "width:300px",
+    "position:fixed", "right:20px", "bottom:20px", "width:300px",
     "background:#fff", "color:#0e1925", "border:1px solid #d5dde5", "border-radius:12px",
     "box-shadow:0 10px 40px rgba(14,25,37,0.18)", "z-index:2147483647",
     "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
@@ -229,6 +399,12 @@ function injectCriteriaPanel(job, results) {
     </div>
     <div style="max-height:280px;overflow-y:auto;">${rows}</div>
     ${hasUnknown ? '<div style="padding:7px 14px;font-size:11px;color:#9ca3af;border-top:1px solid #f3f4f6;">? = client data not shown on this page</div>' : ""}
+    <div style="padding:10px 14px;border-top:1px solid #f3f4f6;">
+      <button id="ut-chatgpt-btn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:8px 12px;background:#10a37f;color:#fff;border:0;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity 0.15s;">
+        <svg width="14" height="14" viewBox="0 0 41 41" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;"><path d="M37.532 16.87a9.963 9.963 0 0 0-.856-8.184 10.078 10.078 0 0 0-10.855-4.835 9.964 9.964 0 0 0-6.215-3.807 10.079 10.079 0 0 0-11.136 4.964 9.963 9.963 0 0 0-6.62 4.827 10.079 10.079 0 0 0 1.24 11.817 9.965 9.965 0 0 0 .856 8.185 10.079 10.079 0 0 0 10.855 4.835 9.965 9.965 0 0 0 6.215 3.806 10.079 10.079 0 0 0 11.136-4.964 9.963 9.963 0 0 0 6.62-4.827 10.079 10.079 0 0 0-1.24-11.817zm-17.851 16.51a7.461 7.461 0 0 1-4.778-1.719l.236-.134 7.938-4.578a.652.652 0 0 0 .33-.573v-11.19l3.354 1.936a.061.061 0 0 1 .033.048v9.268c-.004 4.135-3.355 7.482-7.113 7.482zm-15.261-6.866a7.431 7.431 0 0 1-.889-5.023l.236.142 7.938 4.578a.648.648 0 0 0 .659 0l9.702-5.604v3.872a.064.064 0 0 1-.026.053l-8.026 4.631c-3.582 2.073-8.162.84-9.594-2.65zm-1.99-17.619a7.447 7.447 0 0 1 3.886-3.275V16.8a.651.651 0 0 0 .329.572l9.703 5.604-3.354 1.935a.061.061 0 0 1-.06.006l-8.027-4.632a7.482 7.482 0 0 1-2.477-9.38zm27.372 6.42l-9.703-5.604 3.354-1.935a.06.06 0 0 1 .06-.007l8.027 4.633a7.479 7.479 0 0 1-1.158 13.528v-9.645a.651.651 0 0 0-.58-.97zm3.34-5.053-.236-.141-7.938-4.578a.65.65 0 0 0-.659 0l-9.702 5.604v-3.872a.063.063 0 0 1 .025-.053l8.027-4.632a7.481 7.481 0 0 1 11.483 7.672zm-21.01 6.921l-3.354-1.935a.062.062 0 0 1-.034-.048V7.926a7.481 7.481 0 0 1 12.264-5.738l-.236.134-7.938 4.578a.651.651 0 0 0-.33.572l-.012 11.19-.36-.207zm1.822-3.93l4.322-2.492 4.322 2.49v4.983l-4.322 2.491-4.322-2.49V13.384z" fill="currentColor"/></svg>
+        Ask ChatGPT
+      </button>
+    </div>
   `;
 
   document.body.appendChild(panel);
@@ -246,13 +422,38 @@ function injectCriteriaPanel(job, results) {
   });
   document.addEventListener("mousemove", (e) => {
     if (!dragging) return;
-    panel.style.left  = (e.clientX - offX) + "px";
-    panel.style.top   = (e.clientY - offY) + "px";
-    panel.style.right = "auto";
+    panel.style.left   = (e.clientX - offX) + "px";
+    panel.style.top    = (e.clientY - offY) + "px";
+    panel.style.right  = "auto";
+    panel.style.bottom = "auto";
   });
   document.addEventListener("mouseup", () => { dragging = false; });
 
   panel.querySelector("#ut-criteria-close").addEventListener("click", () => panel.remove());
+
+  panel.querySelector("#ut-chatgpt-btn").addEventListener("click", async () => {
+    const btn = panel.querySelector("#ut-chatgpt-btn");
+    btn.textContent = "Building prompt…";
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+    try {
+      const profile = await getFreelancerProfile();
+      const prompt = buildChatGPTPrompt(job, results, profile);
+      await navigator.clipboard.writeText(prompt);
+      btn.textContent = "✓ Copied! Opening ChatGPT…";
+      setTimeout(() => {
+        window.open("https://chatgpt.com/", "_blank");
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 41 41" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;"><path d="M37.532 16.87a9.963 9.963 0 0 0-.856-8.184 10.078 10.078 0 0 0-10.855-4.835 9.964 9.964 0 0 0-6.215-3.807 10.079 10.079 0 0 0-11.136 4.964 9.963 9.963 0 0 0-6.62 4.827 10.079 10.079 0 0 0 1.24 11.817 9.965 9.965 0 0 0 .856 8.185 10.079 10.079 0 0 0 10.855 4.835 9.965 9.965 0 0 0 6.215 3.806 10.079 10.079 0 0 0 11.136-4.964 9.963 9.963 0 0 0 6.62-4.827 10.079 10.079 0 0 0-1.24-11.817zm-17.851 16.51a7.461 7.461 0 0 1-4.778-1.719l.236-.134 7.938-4.578a.652.652 0 0 0 .33-.573v-11.19l3.354 1.936a.061.061 0 0 1 .033.048v9.268c-.004 4.135-3.355 7.482-7.113 7.482zm-15.261-6.866a7.431 7.431 0 0 1-.889-5.023l.236.142 7.938 4.578a.648.648 0 0 0 .659 0l9.702-5.604v3.872a.064.064 0 0 1-.026.053l-8.026 4.631c-3.582 2.073-8.162.84-9.594-2.65zm-1.99-17.619a7.447 7.447 0 0 1 3.886-3.275V16.8a.651.651 0 0 0 .329.572l9.703 5.604-3.354 1.935a.061.061 0 0 1-.06.006l-8.027-4.632a7.482 7.482 0 0 1-2.477-9.38zm27.372 6.42l-9.703-5.604 3.354-1.935a.06.06 0 0 1 .06-.007l8.027 4.633a7.479 7.479 0 0 1-1.158 13.528v-9.645a.651.651 0 0 0-.58-.97zm3.34-5.053-.236-.141-7.938-4.578a.65.65 0 0 0-.659 0l-9.702 5.604v-3.872a.063.063 0 0 1 .025-.053l8.027-4.632a7.481 7.481 0 0 1 11.483 7.672zm-21.01 6.921l-3.354-1.935a.062.062 0 0 1-.034-.048V7.926a7.481 7.481 0 0 1 12.264-5.738l-.236.134-7.938 4.578a.651.651 0 0 0-.33.572l-.012 11.19-.36-.207zm1.822-3.93l4.322-2.492 4.322 2.49v4.983l-4.322 2.491-4.322-2.49V13.384z" fill="currentColor"/></svg> Ask ChatGPT`;
+        btn.disabled = false;
+        btn.style.opacity = "1";
+      }, 800);
+    } catch (e) {
+      console.error("[UT] ChatGPT prompt error:", e);
+      btn.textContent = "Failed — try again";
+      btn.disabled = false;
+      btn.style.opacity = "1";
+    }
+  });
 }
 
 // ── Feed card verdicts ────────────────────────────────────────────────────────
@@ -266,49 +467,121 @@ const CARD_EVALUABLE_FIELDS = new Set([
   "client_payment_verified",
   "client_rating",
   "client_total_spent",
+  "client_country",
+  "job_proposals",
 ]);
 
+let _jobEvalGeneration = 0; // increments every time a new job is opened; stale evals check against it
 let _cardCriteriaCache = null;
 let _cardCriteriaTs    = 0;
+let _cardCriteriaHash  = "";
+
+let _freelancerProfileCache = null;
+let _freelancerProfileTs    = 0;
+
+async function getFreelancerProfile() {
+  if (!isContextValid()) return null;
+  const now = Date.now();
+  if (_freelancerProfileCache && now - _freelancerProfileTs < 300_000) {
+    return _freelancerProfileCache;
+  }
+  try {
+    const data = await new Promise((resolve) =>
+      chrome.runtime.sendMessage({ type: "GET_FREELANCER_PROFILE" }, resolve)
+    );
+    _freelancerProfileCache = data?.profile || null;
+    _freelancerProfileTs    = now;
+    return _freelancerProfileCache;
+  } catch (e) {
+    return _freelancerProfileCache; // return stale on error
+  }
+}
+
+function _criteriaHash(criteria) {
+  return criteria.map((c) => `${c.id}:${c.key}:${c.operator}:${c.value}:${c.required}`).join("|");
+}
 
 async function loadCardCriteria() {
+  if (!isContextValid()) return [];
+
   const now = Date.now();
 
-  // 1. In-memory cache (60s) — fastest path
-  if (_cardCriteriaCache && now - _cardCriteriaTs < 60_000) {
-    console.log("[UT] Criteria: in-memory cache hit");
+  // 1. In-memory cache (15s) — fast path, short enough to pick up admin changes quickly
+  if (_cardCriteriaCache && now - _cardCriteriaTs < 15_000) {
     return _cardCriteriaCache;
   }
 
-  // 2. chrome.storage cache (5-min TTL) — survives page loads, no API call
   try {
+    // 2. chrome.storage cache (60s TTL) — survives page loads, refreshes within a minute of admin changes
     const stored = await chrome.storage.local.get(["_criteriaCache", "_criteriaCacheTs"]);
-    if (stored._criteriaCache && now - (stored._criteriaCacheTs || 0) < 300_000) {
-      _cardCriteriaCache = stored._criteriaCache;
+    if (stored._criteriaCache && now - (stored._criteriaCacheTs || 0) < 60_000) {
+      const incoming = stored._criteriaCache;
+      const incomingHash = _criteriaHash(incoming);
+      if (incomingHash !== _cardCriteriaHash) {
+        document.querySelectorAll(".ut-verdict-badge").forEach((b) => b.remove());
+        _cardCriteriaHash = incomingHash;
+        console.log("[UT] Criteria changed (storage), clearing badges");
+      }
+      _cardCriteriaCache = incoming;
       _cardCriteriaTs    = now;
       console.log("[UT] Criteria: storage cache hit,", _cardCriteriaCache.length, "criteria");
       return _cardCriteriaCache;
     }
+
+    // 3. Fetch from backend via background (same endpoint the sidebar uses)
+    console.log("[UT] Criteria: fetching from API...");
+    const data = await new Promise((resolve) =>
+      chrome.runtime.sendMessage({ type: "GET_BIDDING_CRITERIA" }, resolve)
+    );
+    const incoming = (data && data.criteria) || [];
+    const incomingHash = _criteriaHash(incoming);
+    if (incomingHash !== _cardCriteriaHash) {
+      document.querySelectorAll(".ut-verdict-badge").forEach((b) => b.remove());
+      _cardCriteriaHash = incomingHash;
+      console.log("[UT] Criteria changed (API), clearing badges —",
+        incoming.map((c) => `${c.key}(req:${c.required})`).join(", "));
+    }
+    _cardCriteriaCache = incoming;
+    _cardCriteriaTs    = now;
+
+    chrome.storage.local.set({ _criteriaCache: _cardCriteriaCache, _criteriaCacheTs: now }).catch(() => {});
+
+    return _cardCriteriaCache;
   } catch (e) {
-    console.warn("[UT] Criteria storage read error:", e);
+    // Extension context invalidated (reloaded/updated) — stop silently
+    return [];
   }
+}
 
-  // 3. Fetch from backend via background (same endpoint the sidebar uses)
-  console.log("[UT] Criteria: fetching from API via GET_BIDDING_CRITERIA...");
-  const data = await new Promise((resolve) =>
-    chrome.runtime.sendMessage({ type: "GET_BIDDING_CRITERIA" }, resolve)
-  );
-  _cardCriteriaCache = (data && data.criteria) || [];
-  _cardCriteriaTs    = now;
+function parseProposalRange(str) {
+  if (!str) return null;
+  const ltM    = str.match(/(?:less|fewer)\s*than\s*(\d+)/i);
+  const rangeM = str.match(/(\d+)\s*to\s*(\d+)/i);
+  const plusM  = str.match(/(\d+)\+/);
+  const exactM = str.match(/^(\d+)$/);
+  if (ltM)    return parseInt(ltM[1]) - 1;       // "Less than 5" → 4
+  if (rangeM) return parseInt(rangeM[2]);         // "5 to 10" → 10
+  if (plusM)  return parseInt(plusM[1]) + 50;     // "50+" → 100
+  if (exactM) return parseInt(exactM[1]);
+  return null;
+}
 
-  console.log("[UT] Criteria loaded from API:", _cardCriteriaCache.length, "total —",
-    _cardCriteriaCache.map((c) => `${c.key}(req:${c.required})`).join(", ")
-  );
-
-  // Save to storage for next page load
-  chrome.storage.local.set({ _criteriaCache: _cardCriteriaCache, _criteriaCacheTs: now }).catch(() => {});
-
-  return _cardCriteriaCache;
+function parseLastViewed(str) {
+  if (!str) return null;
+  const s = str.toLowerCase().trim();
+  if (s === "just now")  return 0;
+  if (s === "yesterday") return 24;
+  const minM   = s.match(/(\d+)\s*minute/);
+  if (minM)  return 0;                                    // < 1 hour → 0
+  const hourM  = s.match(/(\d+)\s*hour/);
+  if (hourM) return parseInt(hourM[1]);                   // "3 hours ago" → 3
+  const dayM   = s.match(/(\d+)\s*day/);
+  if (dayM)  return parseInt(dayM[1]) * 24;               // "2 days ago" → 48
+  const weekM  = s.match(/(\d+)\s*week/);
+  if (weekM) return parseInt(weekM[1]) * 168;             // "1 week ago" → 168
+  const monthM = s.match(/(\d+)\s*month/);
+  if (monthM) return parseInt(monthM[1]) * 720;           // "2 months ago" → 1440
+  return null;
 }
 
 function scrapeCardClientData(card) {
@@ -327,7 +600,6 @@ function scrapeCardClientData(card) {
     const rm = rt.match(/\b([1-5](?:\.\d{1,2})?)\b/);
     if (rm) data.clientRating = parseFloat(rm[1]);
   }
-  // Fallback: any decimal in 1–5 range (require decimal to avoid "$5" matches)
   if (!data.clientRating) {
     const rm = text.match(/\b([1-5]\.\d{1,2})\b/);
     if (rm) data.clientRating = parseFloat(rm[1]);
@@ -337,11 +609,23 @@ function scrapeCardClientData(card) {
   const sm = text.match(/\$([\d,.]+[KkMmBb]*\+?)\s*(?:total\s*)?spent/i);
   if (sm) data.clientSpent = "$" + sm[1];
 
-  console.log("[UT] Card data:", {
+  // ── Country — word(s) after "spent" on the same or next line ──
+  const cm = text.match(/\bspent[\s\S]{0,10}\n\s*([A-Z][a-zA-Z ()]{2,40})\s*(?:\n|$)/m)
+          || text.match(/\bspent\s+([A-Z][a-zA-Z ()]{2,40})\s*(?:\n|$)/m);
+  if (cm) data.clientCountry = cm[1].trim();
+
+  // ── Proposals — "Proposals: Less than 5", "Proposals: 5 to 10", etc. ──
+  // Require the colon and anchor to a line start to avoid matching "proposal" in job descriptions.
+  const pm = text.match(/(?:^|\n)\s*proposals?\s*:\s*([^\n]{1,30})/i);
+  if (pm) data.jobProposals = parseProposalRange(pm[1].trim());
+
+  console.log("[UT] Card scraped:", {
     paymentVerified: data.clientPaymentVerified,
     rating:          data.clientRating,
     spent:           data.clientSpent,
-    text:            text.slice(0, 150).replace(/\n/g, " "),
+    country:         data.clientCountry,
+    proposals:       data.jobProposals,
+    text:            text.slice(0, 300).replace(/\n/g, " | "),
   });
   return data;
 }
@@ -409,8 +693,16 @@ let _cardVerdictDebounce        = null;
 // so we cannot rely on link href patterns. Instead we locate cards by their
 // client-info content (payment verified / spent amount) which is unique to cards.
 function findFeedJobCards() {
-  const inPanel = (el) =>
-    !!el.closest('[class*="drawer"],[class*="panel"],[class*="slider"],[role="dialog"]');
+  // Identify the actual job-detail drawer (the one with "Send a proposal" / "Apply now").
+  // [class*="panel"] is too broad — Upwork's search results container also has "panel"
+  // in its class, which would filter out every search result card.
+  const jobDetailPanel = (() => {
+    for (const p of document.querySelectorAll('[class*="drawer"],[role="dialog"],[class*="slider"]')) {
+      if (p.offsetHeight > 200 && /Send a proposal|Apply now/i.test(p.innerText || "")) return p;
+    }
+    return null;
+  })();
+  const inPanel = (el) => !!jobDetailPanel?.contains(el);
 
   const cards = new Set();
 
@@ -538,6 +830,7 @@ function watchForFeedCardVerdicts() {
   const observer = new MutationObserver(() => {
     clearTimeout(_cardVerdictDebounce);
     _cardVerdictDebounce = setTimeout(() => {
+      if (!isContextValid()) { observer.disconnect(); return; }
       injectFeedCardVerdicts().catch((e) =>
         console.error("[UT] injectFeedCardVerdicts error:", e)
       );
@@ -599,6 +892,41 @@ function extractUserId() {
 
   // No cookie fallback — returns wrong-format internal IDs (e.g. "162")
   return null;
+}
+
+// ── Profile scrape retry state ──
+let _profileScrapeTimer   = null;
+let _profileScrapeAttempt = 0;
+// Retry delays (ms): 0 → 2s → 4s → 8s → 15s — max 5 attempts
+const _profileRetryDelays = [0, 2000, 4000, 8000, 15000];
+
+function scrapeAccountWhenReady() {
+  clearTimeout(_profileScrapeTimer);
+  _profileScrapeAttempt = 0;
+  _tryProfileScrape();
+}
+
+function _tryProfileScrape() {
+  const hasSkills   = extractSkills().length > 0;
+  const hasOverview = !!extractOverview();
+  const isLast      = _profileScrapeAttempt >= _profileRetryDelays.length - 1;
+
+  if (hasSkills && hasOverview) {
+    console.log("[UT] Profile ready (attempt", _profileScrapeAttempt + 1, ") — scraping");
+    scrapeAccount();
+    return;
+  }
+
+  if (isLast) {
+    console.log("[UT] Profile max attempts reached — scraping with partial data");
+    scrapeAccount();
+    return;
+  }
+
+  _profileScrapeAttempt++;
+  const delay = _profileRetryDelays[_profileScrapeAttempt];
+  console.log("[UT] Profile not ready yet (attempt", _profileScrapeAttempt, ") — retrying in", delay, "ms");
+  _profileScrapeTimer = setTimeout(_tryProfileScrape, delay);
 }
 
 // ── SCRAPER: Account / Profile (ONLY runs on /freelancers/* pages) ──
@@ -742,23 +1070,45 @@ function findSectionByHeading(needles) {
 }
 
 function extractSkills() {
-  // Skills typically render as a list of small badges/chips.
-  const sectionEl = findSectionContainer(["skills", "skills and expertise"]);
-  if (!sectionEl) return [];
-  const chips = Array.from(
-    sectionEl.querySelectorAll("li, [class*='token'], [class*='chip'], [class*='tag'], [class*='skill'], button, a"),
-  );
   const seen = new Set();
   const out = [];
-  for (const el of chips) {
-    const t = (el.textContent || "").trim();
-    if (!t || t.length > 60) continue;
-    if (/^(more|less|view all|edit|add)/i.test(t)) continue;
-    if (seen.has(t.toLowerCase())) continue;
-    seen.add(t.toLowerCase());
-    out.push(t);
-    if (out.length >= 100) break;
+
+  const addChips = (container) => {
+    if (!container) return;
+    const chips = Array.from(container.querySelectorAll(
+      "li, [class*='token'], [class*='chip'], [class*='tag'], [class*='skill'], [class*='badge'], button, span"
+    ));
+    for (const el of chips) {
+      // Only leaf nodes — skip containers that have nested elements with text
+      if (el.children.length > 2) continue;
+      const t = (el.textContent || "").trim();
+      if (!t || t.length > 60 || t.length < 2) continue;
+      if (/^(more|less|view all|edit|add|skills?|expertise|and|,)/i.test(t)) continue;
+      if (/^\d+$/.test(t)) continue;
+      if (seen.has(t.toLowerCase())) continue;
+      seen.add(t.toLowerCase());
+      out.push(t);
+      if (out.length >= 100) break;
+    }
+  };
+
+  // Strategy 1: find via section heading
+  const sectionEl = findSectionContainer(["skills", "skills and expertise"]);
+  if (sectionEl) addChips(sectionEl);
+  if (out.length > 0) return out;
+
+  // Strategy 2: find any heading whose text is exactly "skills" and harvest siblings
+  const allEls = document.querySelectorAll("h1,h2,h3,h4,h5,p,div,span");
+  for (const h of allEls) {
+    const t = (h.textContent || "").trim().toLowerCase();
+    if (t !== "skills" && t !== "skills and expertise") continue;
+    const sibling = h.nextElementSibling;
+    const parent  = h.parentElement;
+    addChips(sibling);
+    if (out.length === 0) addChips(parent);
+    if (out.length > 0) break;
   }
+
   return out;
 }
 
@@ -903,19 +1253,24 @@ function scrapeStats() {
 
 // ── Scroll entire page/panel to trigger lazy-loaded content ──
 async function scrollToLoadAll() {
-  // Find the scrollable container — could be the page or a side panel
   const panel = document.querySelector('[class*="drawer"], [class*="panel"], [class*="slider"], [class*="detail"], [role="dialog"]');
   const scrollTarget = panel || document.documentElement;
+  const isPage = scrollTarget === document.documentElement;
+
+  // Save original scroll position so we can restore it (don't reset to 0 on page)
+  const originalScrollTop = scrollTarget.scrollTop;
 
   const scrollHeight = scrollTarget.scrollHeight;
   const step = 500;
   for (let pos = 0; pos < scrollHeight; pos += step) {
+    // Abort if a panel scrape is running but the panel has since closed
+    if (panel && !document.contains(panel)) return;
     scrollTarget.scrollTop = pos;
     await new Promise((r) => setTimeout(r, 150));
   }
-  // Scroll back to top
-  scrollTarget.scrollTop = 0;
-  // Wait for any lazy content to finish rendering
+
+  // Restore original position — never reset the page to top unexpectedly
+  scrollTarget.scrollTop = isPage ? originalScrollTop : 0;
   await new Promise((r) => setTimeout(r, 1000));
 }
 
@@ -1107,8 +1462,8 @@ async function scrapeJobData() {
     const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
 
     // Payment & phone verified
-    job.clientPaymentVerified = /payment\s*method\s*verified/i.test(block);
-    job.clientPhoneVerified = /phone\s*number\s*verified/i.test(block);
+    job.clientPaymentVerified = /payment\s*(?:method\s*)?verified/i.test(block);
+    job.clientPhoneVerified = /phone\s*(?:number\s*)?verified/i.test(block);
 
     // Rating — standalone float like "5.0" (the big star rating)
     const ratingLine = lines.find((l) => /^\d+\.\d+$/.test(l));
@@ -1172,6 +1527,20 @@ async function scrapeJobData() {
     if (memberMatch) job.clientMemberSince = memberMatch[1].trim();
   }
 
+  // ── Activity on this job — Proposals count + Interviewing count ──
+  const activityMatch = text.match(/activity\s*on\s*this\s*job([\s\S]*?)(?=\n\s*job\s*link|\n\s*about\s*the\s*client|\n\s*similar\s*jobs|$)/i);
+  if (activityMatch) {
+    const actBlock = activityMatch[1];
+    const interviewM = actBlock.match(/interviewing\s*:?\s*(\d+)/i);
+    if (interviewM) job.interviewing = parseInt(interviewM[1]);
+    const proposalM = actBlock.match(/proposals?\s*:?\s*([^\n]{1,30})/i);
+    if (proposalM) job.jobProposals = parseProposalRange(proposalM[1].trim());
+    const hiresM = actBlock.match(/^hires\s*:?\s*(\d+)/im);
+    if (hiresM) job.jobHires = parseInt(hiresM[1]);
+    const viewedM = actBlock.match(/last\s*viewed\s*by\s*client\s*:?\s*([^\n]{1,40})/i);
+    if (viewedM) job.lastViewedHours = parseLastViewed(viewedM[1].trim());
+  }
+
   console.log("[UT] Job scraped:", JSON.stringify(job).slice(0, 500));
   return job;
 }
@@ -1179,13 +1548,82 @@ async function scrapeJobData() {
 // ── SCRAPER: Job Post (full page OR side panel) ──
 async function scrapeJob() {
   console.log("[UT] Scraping job post...");
+  const myGen = ++_jobEvalGeneration;
   const job = await scrapeJobData();
+  if (myGen !== _jobEvalGeneration) return; // user already switched to another job
   if (job.title) {
     sendToBackground("SCRAPED_JOB", job);
-    evaluateAndShowCriteria(job).catch(() => {});
+    evaluateAndShowCriteria(job, false, myGen).catch(() => {});
   } else {
+    document.getElementById("ut-criteria-panel")?.remove();
     console.log("[UT] No job title found");
   }
+}
+
+function injectCriteriaPanelSkeleton() {
+  document.getElementById("ut-criteria-panel")?.remove();
+
+  const panel = document.createElement("div");
+  panel.id = "ut-criteria-panel";
+  panel.setAttribute("style", [
+    "position:fixed", "right:20px", "bottom:20px", "width:300px",
+    "background:#fff", "color:#0e1925", "border:1px solid #d5dde5", "border-radius:12px",
+    "box-shadow:0 10px 40px rgba(14,25,37,0.18)", "z-index:2147483647",
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+    "overflow:hidden",
+  ].join(";"));
+
+  const shimmer = `
+    @keyframes ut-shimmer {
+      0%   { background-position: -400px 0; }
+      100% { background-position:  400px 0; }
+    }
+    .ut-skel {
+      background: linear-gradient(90deg, #f0f2f5 25%, #e4e8ed 50%, #f0f2f5 75%);
+      background-size: 800px 100%;
+      animation: ut-shimmer 1.4s infinite linear;
+      border-radius: 6px;
+    }
+  `;
+
+  const skeletonRows = Array.from({ length: 4 }).map(() => `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f3f4f6;">
+      <div class="ut-skel" style="width:18px;height:18px;border-radius:50%;flex-shrink:0;"></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:5px;">
+        <div class="ut-skel" style="height:11px;width:70%;"></div>
+      </div>
+      <div class="ut-skel" style="width:26px;height:18px;border-radius:4px;flex-shrink:0;"></div>
+    </div>
+  `).join("");
+
+  panel.innerHTML = `
+    <style>${shimmer}</style>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e5e7eb;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite;flex-shrink:0;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+        <span style="font-weight:600;font-size:13px;color:#64748b;">Checking criteria…</span>
+      </div>
+      <button id="ut-criteria-close" style="background:transparent;color:#9ca3af;border:0;cursor:pointer;font-size:16px;line-height:1;padding:0 4px;">✕</button>
+    </div>
+    ${skeletonRows}
+    <div style="padding:10px 14px;border-top:1px solid #f3f4f6;">
+      <div style="width:100%;padding:9px;background:#e5e7eb;border-radius:8px;display:flex;align-items:center;justify-content:center;gap:7px;">
+        <div class="ut-skel" style="width:14px;height:14px;border-radius:50%;"></div>
+        <div class="ut-skel" style="width:80px;height:12px;"></div>
+      </div>
+    </div>
+  `;
+
+  // Inject spin keyframe for the spinner
+  if (!document.getElementById("ut-spin-style")) {
+    const s = document.createElement("style");
+    s.id = "ut-spin-style";
+    s.textContent = "@keyframes spin { to { transform: rotate(360deg); } }";
+    document.head.appendChild(s);
+  }
+
+  document.body.appendChild(panel);
+  panel.querySelector("#ut-criteria-close").addEventListener("click", () => panel.remove());
 }
 
 // ── SCRAPER: Proposals List (with pagination) ──
@@ -1704,7 +2142,7 @@ async function scrapeProposalDetail() {
     const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
 
     // Payment verified
-    proposal.clientPaymentVerified = /payment\s*method\s*verified/i.test(block);
+    proposal.clientPaymentVerified = /payment\s*(?:method\s*)?verified/i.test(block);
 
     // Rating — standalone float like "4.3"
     const ratingLine = lines.find((l) => /^\d+\.\d+$/.test(l));
@@ -2148,7 +2586,7 @@ function scrapeApplySubmission() {
     const block = aboutMatch[1];
     const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
 
-    submission.clientPaymentVerified = /payment\s*method\s*verified/i.test(block);
+    submission.clientPaymentVerified = /payment\s*(?:method\s*)?verified/i.test(block);
 
     const ratingLine = lines.find((l) => /^\d+\.\d+$/.test(l));
     if (ratingLine) submission.clientRating = parseFloat(ratingLine);
@@ -2903,6 +3341,16 @@ function renderAnalysis(container, a) {
   container.innerHTML = html;
 }
 
+// ── Helpers ──
+function isFeedPage(url) {
+  return (
+    url.includes("/nx/find-work") ||
+    url.includes("/ab/find-work") ||
+    url.includes("/search/jobs") ||
+    url.includes("/nx/s/universal-search/jobs")
+  );
+}
+
 // ── Page router ──
 function detectPageAndScrape() {
   const url = window.location.href;
@@ -2931,7 +3379,7 @@ function detectPageAndScrape() {
         console.log("[UT] Skip profile scrape: not own profile", pageProfileId, "vs", data.canonicalUserId);
         return;
       }
-      scrapeAccount();
+      scrapeAccountWhenReady();
     });
   }
 
@@ -2959,7 +3407,7 @@ function detectPageAndScrape() {
     scrapeProposalDetail();
   } else if (url.includes("/nx/proposals") || url.includes("/ab/proposals")) {
     scrapeProposals();
-  } else if (url.includes("/nx/find-work") || url.includes("/search/jobs") || url.includes("/ab/find-work")) {
+  } else if (isFeedPage(url)) {
     scrapeFeed();
     // Also check if a job detail panel is open on the feed page
     if (isJobPanelOpen()) {
@@ -2989,10 +3437,13 @@ function watchForJobPanel() {
           console.log("[UT] Job panel detected, scraping:", jobUrl);
           lastJobPanelUrl = jobUrl;
           scrapedJobUrls.add(jobUrl);
+          // Show skeleton immediately so the bidder sees the panel right away,
+          // then wait for the page to fully render before scraping.
+          injectCriteriaPanelSkeleton();
           setTimeout(() => {
             try { scrapeJob(); }
             catch (e) { console.error("[UT] scrapeJob threw:", e); }
-          }, 3500);
+          }, 4500);
         }
       } else if (lastJobPanelUrl !== null) {
         lastJobPanelUrl = null;
@@ -3125,7 +3576,7 @@ function runWithDelay(delayMs = 3000) {
     catch (e) { console.error("[UT] detectPageAndScrape threw:", e); }
     const url = window.location.href;
     try {
-      if (url.includes("/nx/find-work") || url.includes("/search/jobs") || url.includes("/ab/find-work")) {
+      if (isFeedPage(url)) {
         watchForJobPanel();
         watchForFeedCardVerdicts();
       }
@@ -3170,6 +3621,10 @@ const navObserver = new MutationObserver(() => {
       lastUrl = window.location.href;
       lastJobPanelUrl = null;
       _cardVerdictObserverStarted = false;
+      _cardCriteriaTs   = 0; // force criteria re-check on next page
+      _cardCriteriaHash = "";
+      clearTimeout(_profileScrapeTimer); // cancel any pending profile retry
+      _profileScrapeAttempt = 0;
       document.getElementById("ut-criteria-panel")?.remove();
       maybeWatchApplyPage(window.location.href);
       runWithDelay(2000);
@@ -3272,9 +3727,13 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
+const DISABLED_BANNER_SNOOZE_MS = 30 * 60 * 1000; // 30 minutes
+
 // On page load, check stored disable status immediately
-chrome.storage.local.get(["accountDisabled", "accountDisabledReason"], (data) => {
-  if (data.accountDisabled) showDisabledBanner(data.accountDisabledReason ?? null);
+chrome.storage.local.get(["accountDisabled", "accountDisabledReason", "disabledBannerSnoozedUntil"], (data) => {
+  if (!data.accountDisabled) return;
+  if (data.disabledBannerSnoozedUntil && Date.now() < data.disabledBannerSnoozedUntil) return;
+  showDisabledBanner(data.accountDisabledReason ?? null);
 });
 
 function showDisabledBanner(reason) {
@@ -3287,22 +3746,30 @@ function showDisabledBanner(reason) {
     "left:0",
     "right:0",
     "z-index:2147483647",
-    "background:rgba(220,38,38,0.82)",
-    "backdrop-filter:blur(6px)",
-    "-webkit-backdrop-filter:blur(6px)",
-    "color:#fff",
+    "background:rgba(255,241,241,0.92)",
+    "backdrop-filter:blur(8px)",
+    "-webkit-backdrop-filter:blur(8px)",
+    "border-bottom:1.5px solid rgba(220,38,38,0.25)",
+    "color:#b91c1c",
     "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-    "font-size:14px",
+    "font-size:13px",
     "font-weight:600",
-    "text-align:center",
-    "padding:10px 48px",
-    "box-shadow:0 2px 8px rgba(0,0,0,0.3)",
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "gap:8px",
+    "padding:9px 48px",
     "letter-spacing:0.01em",
   ].join(";");
-  const msg = reason
-    ? `Bidding disabled: ${reason}`
-    : "Admin has forbidden bidding on this Upwork account";
-  banner.textContent = msg;
+
+  const icon = document.createElement("span");
+  icon.textContent = "⚠";
+  icon.style.cssText = "font-size:14px;line-height:1;opacity:0.9;";
+
+  const msg = document.createElement("span");
+  msg.textContent = reason
+    ? `Bidding not recommended — ${reason}`
+    : "Your admin has advised against bidding on this account";
 
   const closeBtn = document.createElement("button");
   closeBtn.textContent = "✕";
@@ -3311,13 +3778,13 @@ function showDisabledBanner(reason) {
     "right:14px",
     "top:50%",
     "transform:translateY(-50%)",
-    "background:rgba(255,255,255,0.2)",
-    "border:none",
+    "background:rgba(255,255,255,0.15)",
+    "border:1px solid rgba(255,255,255,0.25)",
     "color:#fff",
-    "font-size:13px",
+    "font-size:11px",
     "font-weight:700",
-    "width:24px",
-    "height:24px",
+    "width:22px",
+    "height:22px",
     "border-radius:50%",
     "cursor:pointer",
     "display:flex",
@@ -3325,10 +3792,17 @@ function showDisabledBanner(reason) {
     "justify-content:center",
     "line-height:1",
     "padding:0",
+    "transition:background 0.15s",
   ].join(";");
-  closeBtn.addEventListener("click", () => removeDisabledBanner());
-  banner.appendChild(closeBtn);
+  closeBtn.title = "Dismiss for 30 minutes";
+  closeBtn.addEventListener("click", () => {
+    chrome.storage.local.set({ disabledBannerSnoozedUntil: Date.now() + DISABLED_BANNER_SNOOZE_MS });
+    removeDisabledBanner();
+  });
 
+  banner.appendChild(icon);
+  banner.appendChild(msg);
+  banner.appendChild(closeBtn);
   document.documentElement.appendChild(banner);
 }
 

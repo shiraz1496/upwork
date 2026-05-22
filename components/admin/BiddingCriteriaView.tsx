@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
+import { COUNTRY_LIST } from "@/lib/countries";
 
-type Operator = "gte" | "lte" | "eq";
+type Operator = "gte" | "lte" | "eq" | "neq";
 
 type Criterion = {
   id: string;
@@ -14,22 +15,44 @@ type Criterion = {
   order: number;
 };
 
-const FIELD_OPTIONS: { key: string; label: string; unit?: string; type: "number" | "boolean" | "string" }[] = [
-  { key: "client_total_spent",      label: "Client Total Spent",      unit: "$",  type: "number" },
-  { key: "client_rating",           label: "Client Rating",           unit: "/5", type: "number" },
-  { key: "client_hire_rate",        label: "Client Hire Rate",        unit: "%",  type: "number" },
-  { key: "client_reviews",          label: "Client Reviews",                      type: "number" },
-  { key: "client_jobs_posted",      label: "Client Jobs Posted",                  type: "number" },
-  { key: "client_hires",            label: "Client Hires",                        type: "number" },
-  { key: "client_active_hires",     label: "Client Active Hires",                 type: "number" },
-  { key: "client_payment_verified", label: "Payment Verified",                    type: "boolean" },
+const FIELD_OPTIONS: { key: string; label: string; unit?: string; type: "number" | "boolean" | "string"; integer?: boolean }[] = [
+  { key: "client_total_spent",      label: "Client Total Spent",      unit: "$",  type: "number"                  },
+  { key: "client_rating",           label: "Client Rating",           unit: "/5", type: "number"                  },
+  { key: "client_hire_rate",        label: "Client Hire Rate",        unit: "%",  type: "number"                  },
+  { key: "client_reviews",          label: "Client Reviews",                      type: "number", integer: true   },
+  { key: "client_jobs_posted",      label: "Client Jobs Posted",                  type: "number", integer: true   },
+  { key: "client_hires",            label: "Client Hires",                        type: "number", integer: true   },
+  { key: "client_active_hires",     label: "Client Active Hires",                 type: "number", integer: true   },
+  { key: "client_payment_verified", label: "Payment Verified",                    type: "boolean"                 },
+  { key: "client_country",          label: "Client Country (Blocked)",            type: "string"                  },
+  { key: "job_interviewing",        label: "Interviewing Count",                  type: "number", integer: true   },
+  { key: "job_proposals",           label: "Proposals Count",                     type: "number", integer: true   },
+  { key: "job_hires",               label: "Hires (this job)",                    type: "number", integer: true   },
+  { key: "job_last_viewed",         label: "Last Viewed (hours ago)",  unit: "h", type: "number"                  },
+  { key: "job_skill_match",         label: "Skill Match (count)",                 type: "number", integer: true   },
 ];
 
-const OPERATOR_OPTIONS: { value: Operator; label: string }[] = [
-  { value: "gte", label: "≥" },
-  { value: "lte", label: "≤" },
-  { value: "eq",  label: "=" },
+const OPERATOR_OPTIONS: { value: Operator; label: string; symbol: string }[] = [
+  { value: "gte", label: "At least (≥)", symbol: "≥" },
+  { value: "lte", label: "At most (≤)",  symbol: "≤" },
+  { value: "eq",  label: "Exactly (=)",  symbol: "=" },
+  { value: "neq", label: "Not (≠)",      symbol: "≠" },
 ];
+
+const DEFAULT_OPERATOR: Record<string, Operator> = {
+  client_total_spent:      "gte",
+  client_rating:           "gte",
+  client_hire_rate:        "gte",
+  client_reviews:          "gte",
+  client_jobs_posted:      "gte",
+  client_hires:            "gte",
+  client_active_hires:     "gte",
+  job_interviewing:        "lte",
+  job_proposals:           "lte",
+  job_hires:               "eq",
+  job_last_viewed:         "lte",
+  job_skill_match:         "gte",
+};
 
 function fieldMeta(key: string) {
   return FIELD_OPTIONS.find((f) => f.key === key);
@@ -38,8 +61,12 @@ function fieldMeta(key: string) {
 function formatCriterion(c: Criterion): string {
   const meta = fieldMeta(c.key);
   const label = meta?.label ?? c.key;
-  const op = OPERATOR_OPTIONS.find((o) => o.value === c.operator)?.label ?? c.operator;
+  const op = OPERATOR_OPTIONS.find((o) => o.value === c.operator)?.symbol ?? c.operator;
   if (meta?.type === "boolean") return label;
+  if (meta?.type === "string") {
+    const countries = c.value.split(",").map((s) => s.trim()).filter(Boolean);
+    return `Blocked: ${countries.join(", ")}`;
+  }
   const unit = meta?.unit ?? "";
   const val = unit === "$" ? `$${c.value}` : `${c.value}${unit}`;
   return `${label} ${op} ${val}`;
@@ -48,6 +75,82 @@ function formatCriterion(c: Criterion): string {
 function Spinner({ className = "" }: { className?: string }) {
   return (
     <span className={`inline-block rounded-full border-2 border-current border-t-transparent animate-spin ${className}`} />
+  );
+}
+
+function SearchableSelect({
+  options,
+  value,
+  onChange,
+  placeholder,
+  className = ""
+}: {
+  options: string[];
+  value: string;
+  onChange: (val: string) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filtered = options.filter(o => o.toLowerCase().includes(query.toLowerCase()));
+
+  return (
+    <div className={`relative ${className}`} ref={ref}>
+      <input
+        type="text"
+        value={open ? query : value}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => {
+          setOpen(true);
+          setQuery("");
+        }}
+        placeholder={value || placeholder}
+        className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 pr-8 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500"
+      />
+      <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-gray-400">
+          <polyline points="6 9 10 13 14 9" />
+        </svg>
+      </div>
+      {open && (
+        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-auto">
+          {filtered.length === 0 ? (
+            <div className="p-2 text-sm text-gray-500 text-center">No results found.</div>
+          ) : (
+            filtered.map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => {
+                  onChange(opt);
+                  setOpen(false);
+                  setQuery("");
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-teal-50 hover:text-teal-700 transition-colors"
+              >
+                {opt}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -66,6 +169,7 @@ export function BiddingCriteriaView() {
   const [editKey, setEditKey] = useState(FIELD_OPTIONS[0].key);
   const [editOperator, setEditOperator] = useState<Operator>("gte");
   const [editValue, setEditValue] = useState("");
+  const [editCountryAdd, setEditCountryAdd] = useState("");
   const [editRequired, setEditRequired] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -92,16 +196,43 @@ export function BiddingCriteriaView() {
 
   const selectedField = fieldMeta(key);
   const isBoolean = selectedField?.type === "boolean";
+  const isString  = selectedField?.type === "string";
 
   async function handleAdd(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     setFormError(null);
     if (!isBoolean && !value.trim()) {
-      setFormError("Value is required.");
+      setFormError(isString ? "Please select a country." : "Value is required.");
       return;
     }
+    // Block duplicate fields (except country which merges)
+    if (key !== "client_country" && criteria.some((c) => c.key === key)) {
+      setFormError("A criterion for this field already exists. Edit the existing one instead.");
+      return;
+    }
+
     setSubmitting(true);
     try {
+      // Countries: merge into one criterion row instead of creating a new one per country
+      if (key === "client_country") {
+        const existing = criteria.find((c) => c.key === "client_country");
+        if (existing) {
+          const list = existing.value.split(",").map((s) => s.trim()).filter(Boolean);
+          if (list.includes(value.trim())) {
+            setFormError("This country is already blocked.");
+            return;
+          }
+          await fetch(`/api/admin/bidding-criteria/${existing.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ value: [...list, value.trim()].join(",") }),
+          });
+          setValue("");
+          await load();
+          return;
+        }
+      }
+
       const res = await fetch("/api/admin/bidding-criteria", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -146,7 +277,6 @@ export function BiddingCriteriaView() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          key: editKey,
           operator: isBool ? "eq" : editOperator,
           value: isBool ? "true" : editValue.trim(),
           required: editRequired,
@@ -206,7 +336,15 @@ export function BiddingCriteriaView() {
               <label className="block text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">Field</label>
               <select
                 value={key}
-                onChange={(e) => { setKey(e.target.value); setValue(""); }}
+                onChange={(e) => {
+                  const newKey = e.target.value;
+                  setKey(newKey);
+                  setValue("");
+                  setFormError(null);
+                  const meta = fieldMeta(newKey);
+                  if (meta?.type === "string") setOperator("neq");
+                  else setOperator(DEFAULT_OPERATOR[newKey] ?? "gte");
+                }}
                 className={`${selectClass} w-full`}
               >
                 {FIELD_OPTIONS.map((f) => (
@@ -215,13 +353,13 @@ export function BiddingCriteriaView() {
               </select>
             </div>
 
-            {!isBoolean && (
+            {!isBoolean && !isString && (
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">Operator</label>
+                <label className="block text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">Must be</label>
                 <select
                   value={operator}
                   onChange={(e) => setOperator(e.target.value as Operator)}
-                  className={`${selectClass} w-20`}
+                  className={`${selectClass} w-28 pr-4`}
                 >
                   {OPERATOR_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
@@ -232,19 +370,32 @@ export function BiddingCriteriaView() {
 
             {!isBoolean && (
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">Value</label>
+                <label className="block text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">
+                  {isString ? "Country" : "Value"}
+                </label>
                 <div className="flex items-center gap-1.5">
                   {selectedField?.unit === "$" && (
                     <span className="text-sm text-gray-400 font-medium">$</span>
                   )}
-                  <input
-                    type="number"
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    placeholder="e.g. 4"
-                    min={0}
-                    className={`${inputClass} w-28`}
-                  />
+                  {isString ? (
+                    <SearchableSelect
+                      value={value}
+                      onChange={setValue}
+                      options={COUNTRY_LIST}
+                      placeholder="— Search or select country —"
+                      className="w-64"
+                    />
+                  ) : (
+                    <input
+                      type="number"
+                      value={value}
+                      onChange={(e) => setValue(e.target.value)}
+                      placeholder="e.g. 4"
+                      min={0}
+                      step={selectedField?.integer ? 1 : "any"}
+                      className={`${inputClass} w-28`}
+                    />
+                  )}
                   {selectedField?.unit && selectedField.unit !== "$" && (
                     <span className="text-sm text-gray-500 font-medium">{selectedField.unit}</span>
                   )}
@@ -390,6 +541,7 @@ export function BiddingCriteriaView() {
       {editing && (() => {
         const editMeta = fieldMeta(editKey);
         const editIsBool = editMeta?.type === "boolean";
+        const editIsStr  = editMeta?.type === "string";
         return (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEditing(null)}>
             <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 flex flex-col gap-5" onClick={(e) => e.stopPropagation()}>
@@ -401,42 +553,76 @@ export function BiddingCriteriaView() {
               <div className="flex flex-col gap-4">
                 <div>
                   <label className="block text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">Field</label>
-                  <select
-                    value={editKey}
-                    onChange={(e) => { setEditKey(e.target.value); setEditValue(""); }}
-                    className={`w-full ${selectClass}`}
-                  >
-                    {FIELD_OPTIONS.map((f) => (
-                      <option key={f.key} value={f.key}>{f.label}</option>
-                    ))}
-                  </select>
+                  <div className={`w-full ${inputClass} bg-gray-50 text-gray-500 cursor-not-allowed`}>
+                    {fieldMeta(editKey)?.label ?? editKey}
+                  </div>
                 </div>
 
                 {!editIsBool && (
-                  <div className="flex gap-3">
-                    <div className="flex-none">
-                      <label className="block text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">Operator</label>
-                      <select
-                        value={editOperator}
-                        onChange={(e) => setEditOperator(e.target.value as Operator)}
-                        className={`${selectClass} w-20`}
-                      >
-                        {OPERATOR_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                    </div>
+                  <div className="flex gap-3 flex-wrap">
+                    {!editIsStr && (
+                      <div className="flex-none">
+                        <label className="block text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">Must be</label>
+                        <select
+                          value={editOperator}
+                          onChange={(e) => setEditOperator(e.target.value as Operator)}
+                          className={`${selectClass} w-28 pr-4`}
+                        >
+                          {OPERATOR_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     <div className="flex-1">
-                      <label className="block text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">Value</label>
+                      <label className="block text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">
+                        {editIsStr ? "Country" : "Value"}
+                      </label>
                       <div className="flex items-center gap-1.5">
                         {editMeta?.unit === "$" && <span className="text-sm text-gray-400 font-medium">$</span>}
-                        <input
-                          type="number"
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          min={0}
-                          className={`${inputClass} flex-1`}
-                        />
+                        {editIsStr ? (
+                          <div className="flex flex-col gap-2 flex-1">
+                            <div className="flex flex-wrap gap-1.5 min-h-[28px]">
+                              {editValue.split(",").map((s) => s.trim()).filter(Boolean).map((country) => (
+                                <span key={country} className="inline-flex items-center gap-1 text-xs bg-teal-50 text-teal-700 border border-teal-200 px-2 py-1 rounded-md font-medium">
+                                  {country}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updated = editValue.split(",").map((s) => s.trim()).filter((s) => s && s !== country);
+                                      setEditValue(updated.join(","));
+                                    }}
+                                    className="text-teal-400 hover:text-rose-500 transition-colors leading-none"
+                                  >✕</button>
+                                </span>
+                              ))}
+                              {!editValue.split(",").filter(Boolean).length && (
+                                <span className="text-xs text-gray-400 italic">No countries blocked</span>
+                              )}
+                            </div>
+                            <SearchableSelect
+                              value={editCountryAdd}
+                              onChange={(c) => {
+                                if (!c) return;
+                                const current = editValue.split(",").map((s) => s.trim()).filter(Boolean);
+                                if (!current.includes(c)) setEditValue([...current, c].join(","));
+                                setEditCountryAdd("");
+                              }}
+                              options={COUNTRY_LIST.filter((c) => !editValue.split(",").map((s) => s.trim()).includes(c))}
+                              placeholder="+ Search to add country…"
+                              className="w-full"
+                            />
+                          </div>
+                        ) : (
+                          <input
+                            type="number"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            min={0}
+                            step={editMeta?.integer ? 1 : "any"}
+                            className={`${inputClass} flex-1`}
+                          />
+                        )}
                         {editMeta?.unit && editMeta.unit !== "$" && (
                           <span className="text-sm text-gray-500 font-medium">{editMeta.unit}</span>
                         )}

@@ -19,7 +19,7 @@ export function AccountManagementView({ accounts, onToggleDisabled }: Props) {
   const disabled = filtered.filter((a) => a.isDisabled);
 
   return (
-    <div className="p-4 lg:p-6 max-w-4xl mx-auto">
+    <div className="p-4 lg:p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-base font-semibold text-gray-900">Account Management</h2>

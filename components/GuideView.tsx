@@ -164,6 +164,12 @@ function SectionSetup() {
         </Step>
       </div>
       <Tip>If you see a yellow banner at the top of Upwork pages, your token hasn&apos;t been added yet. Click the extension icon and paste the token your admin gave you.</Tip>
+      <div className="flex gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 shrink-0 text-red-500 mt-0.5">
+          <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        <p className="text-xs text-red-800 leading-relaxed"><strong>Red banner — Bidding not recommended:</strong> If a red banner appears at the top of Upwork, your admin has advised against bidding on this account. Submitting proposals is not recommended while it&apos;s active. You can dismiss the banner — it will stay hidden for 30 minutes before reappearing. Contact your admin for the reason and next steps.</p>
+      </div>
     </div>
   );
 }
@@ -250,25 +256,77 @@ function SectionSyncing() {
   );
 }
 
+function CriteriaPanelMock() {
+  const rows = [
+    { icon: "✓", color: "#108a00", label: "Payment Verified", required: true },
+    { icon: "✗", color: "#dc2626", label: "Client Hires ≥ 39", required: true, fail: true },
+    { icon: "✓", color: "#108a00", label: "Client Country ≠ Sweden", required: true },
+    { icon: "✓", color: "#108a00", label: "Skill Match ≥ 1", required: true },
+    { icon: "✓", color: "#108a00", label: "Client Total Spent ≥ $1,000", required: true },
+  ];
+  return (
+    <div className="w-full lg:w-64 rounded-2xl bg-white border border-gray-200 shadow-xl overflow-hidden lg:shrink-0 text-sm font-sans">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 bg-red-50 border-b border-red-100">
+        <span className="text-sm font-bold text-red-600">✗ Not recommended</span>
+        <span className="text-gray-400 text-base leading-none cursor-pointer">✕</span>
+      </div>
+      {/* Rows */}
+      {rows.map((r) => (
+        <div key={r.label} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-gray-100 last:border-0">
+          <span className="text-sm font-bold w-4 shrink-0" style={{ color: r.color }}>{r.icon}</span>
+          <span className={`flex-1 text-xs font-${r.fail ? "semibold" : "normal"} truncate`} style={{ color: r.fail ? "#dc2626" : "#374151" }}>{r.label}</span>
+          {r.required && <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded shrink-0">req</span>}
+        </div>
+      ))}
+      {/* ChatGPT button */}
+      <div className="px-3 py-3">
+        <button className="w-full flex items-center justify-center gap-2 bg-[#10a37f] text-white font-bold py-2.5 rounded-xl text-xs">
+          <svg viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5 shrink-0">
+            <path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.677l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.896zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z" />
+          </svg>
+          Ask ChatGPT
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SectionVerdicts() {
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500">The extension evaluates every job in your feed against your team&apos;s bidding criteria and shows a verdict badge on each card — no need to open jobs individually.</p>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-green-100 bg-green-50 p-4">
-          <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-md border bg-green-50 text-green-700 border-green-200 mb-2">✓ Worth applying</span>
-          <p className="text-xs text-green-800 leading-relaxed">All required criteria passed — this client meets your team&apos;s standards.</p>
-        </div>
-        <div className="rounded-xl border border-red-100 bg-red-50 p-4">
-          <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-md border bg-red-50 text-red-600 border-red-200 mb-2">✗ Not recommended</span>
-          <p className="text-xs text-red-700 leading-relaxed">One or more required criteria failed — e.g. low rating, low total spend.</p>
+      <p className="text-sm text-gray-500">The extension evaluates every job against your team&apos;s bidding criteria and shows a verdict badge on each card — on both the Find Work feed and Search results pages. Open any job to see the full breakdown panel.</p>
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
+        <CriteriaPanelMock />
+        <div className="flex-1 space-y-3">
+          <div className="divide-y divide-gray-100">
+            <div className="flex gap-3 py-2 first:pt-0">
+              <span className="text-xs font-semibold text-gray-800 w-28 shrink-0 mt-0.5">✓ Worth applying</span>
+              <span className="text-xs text-gray-500 leading-relaxed">All required criteria passed — this client meets your team&apos;s standards.</span>
+            </div>
+            <div className="flex gap-3 py-2">
+              <span className="text-xs font-semibold text-red-600 w-28 shrink-0 mt-0.5">✗ Not recommended</span>
+              <span className="text-xs text-gray-500 leading-relaxed">One or more required criteria failed — e.g. too few hires, low total spend. The failing rows are highlighted in red.</span>
+            </div>
+            <div className="flex gap-3 py-2">
+              <span className="text-xs font-semibold text-gray-500 w-28 shrink-0 mt-0.5">req badge</span>
+              <span className="text-xs text-gray-500 leading-relaxed">Marks criteria your admin set as required. Optional criteria still show but don&apos;t affect the verdict.</span>
+            </div>
+            <div className="flex gap-3 py-2 last:pb-0">
+              <span className="text-xs font-semibold text-gray-500 w-28 shrink-0 mt-0.5">Not visible on page</span>
+              <span className="text-xs text-gray-500 leading-relaxed">Some data isn&apos;t visible on every job card. These criteria are sorted to the bottom and never block the verdict on their own.</span>
+            </div>
+          </div>
+          <div className="rounded-xl border border-[#10a37f]/20 bg-[#10a37f]/5 p-3 space-y-1.5">
+            <p className="text-xs font-semibold text-[#0d8c6d]">Ask ChatGPT button</p>
+            <p className="text-xs text-gray-600 leading-relaxed">Clicking <strong>Ask ChatGPT</strong> copies the full job details to your clipboard and opens ChatGPT in a new tab. Just paste (<kbd className="text-[10px] font-mono bg-white border border-gray-200 rounded px-1 py-0.5">⌘V</kbd> / <kbd className="text-[10px] font-mono bg-white border border-gray-200 rounded px-1 py-0.5">Ctrl+V</kbd>) to ask ChatGPT anything about the job.</p>
+          </div>
         </div>
       </div>
       <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
         <p className="text-xs font-semibold text-gray-800 mb-1">What criteria are checked?</p>
         <p className="text-xs text-gray-500 leading-relaxed">Your admin configures the rules (minimum client rating, total spent, payment verification, etc.). The extension reads the client data visible on each card and evaluates instantly.</p>
       </div>
-      <Tip>Open a job in the sidebar for the full breakdown — each criterion with its exact value. Feed badges give you a quick pass/fail to skip low-quality jobs at a glance.</Tip>
     </div>
   );
 }
@@ -339,7 +397,8 @@ function SectionNudges() {
               </div>
             ))}
           </div>
-          <Tip>Don&apos;t ignore nudges — unscanned proposals mean your admin is working with incomplete data and can&apos;t give you accurate feedback.</Tip>
+          <Note>If you manage more than one Upwork account, nudges are scoped to the specific account the proposal belongs to. You&apos;ll only see a nudge while you&apos;re logged into that account on Upwork.</Note>
+      <Tip>Don&apos;t ignore nudges — unscanned proposals mean your admin is working with incomplete data and can&apos;t give you accurate feedback.</Tip>
         </div>
       </div>
     </div>
@@ -419,7 +478,6 @@ const CONTENT: Record<SectionId, React.ReactNode> = {
 
 export function GuideView() {
   const [active, setActive] = useState<SectionId>("setup");
-  const section = SECTIONS.find((s) => s.id === active)!;
 
   return (
     <div className="mt-6 pb-6 bg-white border border-gray-200 rounded-2xl overflow-hidden">
