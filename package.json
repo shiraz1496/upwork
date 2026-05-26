@@ -13,6 +13,7 @@
     "db:sync": "sh -c 'set -a && source .env && set +a && DATABASE_URL=$DIRECT_URL npx prisma generate && DATABASE_URL=$DIRECT_URL npx prisma db push'",
     "db:remove-archived:dry": "sh -c 'set -a && source .env && set +a && DATABASE_URL=$DATABASE_URL node scripts/remove-archived-proposals.mjs --dry-run'",
     "db:remove-archived": "sh -c 'set -a && source .env && set +a && DATABASE_URL=$DATABASE_URL node scripts/remove-archived-proposals.mjs'",
+    "db:drop-snapshot": "sh -c 'set -a && source .env && set +a && DATABASE_URL=$DATABASE_URL npx prisma db execute --file scripts/drop-snapshot-table.sql'",
     "ext": "./extension/build.sh"
   },
   "dependencies": {

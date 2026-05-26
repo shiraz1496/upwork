@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OverviewPanel } from "@/components/OverviewPanel";
 import { FreelancerProfileCard } from "@/components/FreelancerProfileCard";
 import { GuideView } from "@/components/GuideView";
-import type { AccountData, OverviewRange, ProposalData } from "@/lib/overview-types";
+import type { AccountData, ProposalData } from "@/lib/overview-types";
 
 type CoveragePayload = {
   member: { id: string; name: string };
@@ -93,7 +93,6 @@ export default function MePage() {
     prev7: { sent: number; viewed: number; interviewed: number; hired: number; viewRate: number; interviewRate: number; hireRate: number };
   } | null>(null);
   const [showWeekCompare, setShowWeekCompare] = useState(false);
-  const [overviewRange, setOverviewRange] = useState<OverviewRange>("7d");
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
   const [activeTab, setActiveTab] = useState<MeTab>("overview");
   const [markingRead, setMarkingRead] = useState<string | null>(null);
@@ -210,7 +209,6 @@ export default function MePage() {
     () =>
       (accounts ?? []).filter(
         (a) =>
-          a.snapshots.length > 0 ||
           a.proposals.length > 0 ||
           (((a.alertCounts?.messages ?? 0) +
             (a.alertCounts?.invites ?? 0) +
@@ -388,8 +386,6 @@ export default function MePage() {
               <>
                 <OverviewPanel
                   accounts={scopedAccounts}
-                  range={overviewRange}
-                  onRangeChange={setOverviewRange}
                   showAccountComparison={selectedAccountId === "all" && myAccounts.length > 1}
                 />
                 {weekStats && (

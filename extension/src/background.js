@@ -421,13 +421,6 @@ const handleMessage = safeAsync(async (message) => {
       return handleGqlCapture(message.payload);
     case "SCRAPED_ACCOUNT":
       return handleScrapedAccount(message.payload);
-    case "SCRAPED_STATS":
-      return handleScrapedStats(message.payload);
-    case "SCRAPED_STATS_RAW": {
-      console.log("[UT BG] Raw stats:", message.payload.rawText?.slice(0, 500));
-      await chrome.storage.local.set({ lastStatsRaw: message.payload.rawText?.slice(0, 2000) });
-      return { ok: true };
-    }
     case "SCRAPED_JOB":
       return handleScrapedJob(message.payload);
     case "SCRAPED_FEED":
@@ -599,39 +592,6 @@ async function handleScrapedAccount(payload) {
 }
 
 // ════════════════════════════════════════════════════
-// SCRAPED STATS (from /nx/my-stats)
-// ════════════════════════════════════════════════════
-async function handleScrapedStats(payload) {
-  const { metrics, jss, connectsBalance, capturedAt, range } = payload;
-  const fid = await getFreelancerId();
-  const name = await getAccountName();
-
-  if (!fid) return { ok: false, note: "No userId — visit any Upwork page first" };
-
-  console.log("[UT BG] Stats → fid:", fid, "range:", range, "metrics:", JSON.stringify(metrics));
-
-  return syncToBackend("/api/sync", {
-    freelancerId: fid,
-    accountName: name,
-    capturedAt,
-    range: range ?? null,
-    jss: jss ?? null,
-    connectsBalance: connectsBalance ?? null,
-    totals: {
-      proposals_sent_boosted: metrics.proposals_sent_boosted || 0,
-      proposals_sent_organic: metrics.proposals_sent_organic || metrics.proposals_sent || 0,
-      proposals_viewed_boosted: metrics.proposals_viewed_boosted || 0,
-      proposals_viewed_organic: metrics.proposals_viewed_organic || metrics.proposals_viewed || 0,
-      proposals_interviewed_boosted: metrics.proposals_interviewed_boosted || 0,
-      proposals_interviewed_organic: metrics.proposals_interviewed_organic || metrics.proposals_interviewed || 0,
-      proposals_hired_boosted: metrics.proposals_hired_boosted || 0,
-      proposals_hired_organic: metrics.proposals_hired_organic || metrics.proposals_hired || 0,
-    },
-    series: [],
-  });
-}
-
-// ════════════════════════════════════════════════════
 // SCRAPED JOB (single job post or panel)
 // ════════════════════════════════════════════════════
 async function handleScrapedJob(payload) {
@@ -675,38 +635,8 @@ async function handleScrapedApplySubmit(payload) {
 // GQL CAPTURED (GraphQL response intercepted)
 // ════════════════════════════════════════════════════
 async function handleGqlCapture(payload) {
-  const { opName, data, variables, capturedAt } = payload;
+  const { opName, data } = payload;
   console.log("[UT BG] GQL:", opName, "keys:", Object.keys(data?.data || {}));
-
-  const fid = await getFreelancerId();
-
-  // Metrics
-  const userMetrics = data?.data?.metrics?.userMetrics || data?.data?.userMetrics || [];
-  if (userMetrics.length > 0 && fid) {
-    console.log("[UT BG] GQL metrics!", userMetrics.length, "types");
-    const totals = {};
-    for (const m of userMetrics) {
-      totals[m.metric] = m.data.reduce((sum, p) => sum + Number(p.value), 0);
-    }
-    return syncToBackend("/api/sync", {
-      freelancerId: fid,
-      accountName: await getAccountName(),
-      capturedAt,
-      startTimestamp: variables?.startTimestamp,
-      endTimestamp: variables?.endTimestamp,
-      totals: {
-        proposals_sent_boosted: totals["PROPOSALS_SENT_BOOSTED"] || 0,
-        proposals_sent_organic: totals["PROPOSALS_SENT_ORGANIC"] || 0,
-        proposals_viewed_boosted: totals["PROPOSALS_VIEWED_BOOSTED"] || 0,
-        proposals_viewed_organic: totals["PROPOSALS_VIEWED_ORGANIC"] || 0,
-        proposals_interviewed_boosted: totals["PROPOSALS_INTERVIEWED_BOOSTED"] || 0,
-        proposals_interviewed_organic: totals["PROPOSALS_INTERVIEWED_ORGANIC"] || 0,
-        proposals_hired_boosted: totals["PROPOSALS_HIRED_BOOSTED"] || 0,
-        proposals_hired_organic: totals["PROPOSALS_HIRED_ORGANIC"] || 0,
-      },
-      series: userMetrics,
-    });
-  }
 
   // User/identity in GQL response — update canonical ID
   const user = data?.data?.user || data?.data?.freelancer || data?.data?.identity || data?.data?.visitor;

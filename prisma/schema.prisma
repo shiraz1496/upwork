@@ -35,7 +35,6 @@ model TeamMember {
   coverageItems     CoverageItem[]
   notesAuthored     CoachingNote[]   @relation("NoteAuthor")
   notesReceived     CoachingNote[]   @relation("NoteRecipient")
-  capturedSnapshots   Snapshot[]
   capturedProposals   Proposal[] @relation("ProposalCapturedBy")
   submittedProposals  Proposal[] @relation("ProposalSubmittedBy")
   capturedAlerts    Alert[]
@@ -104,7 +103,6 @@ model Account {
   disabledReason  String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
-  snapshots       Snapshot[]
   proposals       Proposal[]
   alerts          Alert[]
   coverageItems   CoverageItem[]
@@ -167,35 +165,6 @@ model Alert {
   @@index([roomId])
   @@index([capturedByUserId])
 }
-
-model Snapshot {
-  id                          String   @id @default(cuid())
-  accountId                   String
-  account                     Account  @relation(fields: [accountId], references: [id])
-  capturedAt                  DateTime
-  startTimestamp              String?
-  endTimestamp                String?
-  range                       String?
-  jss                         Float?
-  connectsBalance             Int?
-  proposalsSentBoosted        Int      @default(0)
-  proposalsSentOrganic        Int      @default(0)
-  proposalsViewedBoosted      Int      @default(0)
-  proposalsViewedOrganic      Int      @default(0)
-  proposalsInterviewedBoosted Int      @default(0)
-  proposalsInterviewedOrganic Int      @default(0)
-  proposalsHiredBoosted       Int      @default(0)
-  proposalsHiredOrganic       Int      @default(0)
-  seriesJson                  String?
-  createdAt                   DateTime @default(now())
-
-  capturedByUserId String?
-  capturedByUser   TeamMember? @relation(fields: [capturedByUserId], references: [id])
-
-  @@index([accountId, capturedAt])
-  @@index([capturedByUserId])
-}
-
 
 model Proposal {
   id                    String    @id @default(cuid())
