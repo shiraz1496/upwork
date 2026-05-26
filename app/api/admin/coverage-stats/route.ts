@@ -26,25 +26,16 @@ export async function GET() {
     const bidderIds = bidders.map((b) => b.id);
     const bidderById = new Map(bidders.map((b) => [b.id, b]));
 
-    // Use historical captures to determine bidder-account pairs.
-    // This covers accounts that exist in the system even if no extension visits have
-    // been recorded yet (e.g. Jahan Zeb A. where the bidder owns the account).
-    const [snapAccounts, proposalAccounts] = await Promise.all([
-      prisma.snapshot.findMany({
-        where: { capturedByUserId: { in: bidderIds } },
-        select: { capturedByUserId: true, account: { select: { id: true, name: true } } },
-        distinct: ["capturedByUserId", "accountId"],
-      }),
-      prisma.proposal.findMany({
-        where: { capturedByUserId: { in: bidderIds } },
-        select: { capturedByUserId: true, account: { select: { id: true, name: true } } },
-        distinct: ["capturedByUserId", "accountId"],
-      }),
-    ]);
+    // Use historical proposal captures to determine bidder-account pairs.
+    const proposalAccounts = await prisma.proposal.findMany({
+      where: { capturedByUserId: { in: bidderIds } },
+      select: { capturedByUserId: true, account: { select: { id: true, name: true } } },
+      distinct: ["capturedByUserId", "accountId"],
+    });
 
     // Build account → { name, bidderIds } mapping
     const accountBidderMap = new Map<string, { name: string; bidderIds: Set<string> }>();
-    for (const row of [...snapAccounts, ...proposalAccounts]) {
+    for (const row of proposalAccounts) {
       if (!row.capturedByUserId || !row.account) continue;
       const entry = accountBidderMap.get(row.account.id);
       if (entry) {

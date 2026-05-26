@@ -7,14 +7,12 @@ import { CoveragePagesView } from "@/components/admin/CoveragePagesView";
 import { CoverageLeaderboardView } from "@/components/admin/CoverageLeaderboardView";
 import { BiddingCriteriaView } from "@/components/admin/BiddingCriteriaView";
 import { AccountManagementView } from "@/components/admin/AccountManagementView";
-import { OverviewPanel, type ActivityComparison } from "@/components/OverviewPanel";
+import { OverviewPanel } from "@/components/OverviewPanel";
 import { FreelancerProfileCard } from "@/components/FreelancerProfileCard";
 import type {
   AccountData,
-  SnapshotSummary,
   ProposalData,
   AlertData,
-  OverviewRange,
 } from "@/lib/overview-types";
 import { applyMemberFilter } from "@/lib/overview-aggregation";
 
@@ -77,7 +75,6 @@ const iconProps = {
 const IconHome = () => (<svg {...iconProps}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>);
 const IconFile = () => (<svg {...iconProps}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>);
 const IconBell = () => (<svg {...iconProps}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>);
-const IconCamera = () => (<svg {...iconProps}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>);
 const IconSend = () => (<svg {...iconProps}><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>);
 const IconRefresh = () => (<svg {...iconProps} className="w-4 h-4 shrink-0"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>);
 const IconArrowUp = () => (<svg {...iconProps} className="w-3 h-3 shrink-0"><polyline points="18 15 12 9 6 15" /></svg>);
@@ -412,7 +409,6 @@ type Tab =
   | "proposals"
   | "submissions"
   | "alerts"
-  | "snapshots"
   | "team"
   | "team-stats"
   | "coverage-pages"
@@ -450,9 +446,6 @@ export default function Dashboard() {
   const [bulkNudgeMessage, setBulkNudgeMessage] = useState<string | null>(null);
   const [proposalFilter, setProposalFilter] = useState<string>("all");
   const [viewedFilter, setViewedFilter] = useState<"all" | "viewed" | "not_viewed" | "unscanned">("all");
-  const [overviewRange, setOverviewRange] = useState<OverviewRange>("7d");
-  const [activityComparison, setActivityComparison] = useState<ActivityComparison>(null);
-  const [isLoadingComparison, setIsLoadingComparison] = useState(false);
   const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string; role: string }[]>([]);
   const [memberFilter, setMemberFilter] = useState<string>("all");
@@ -547,21 +540,6 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    setActivityComparison(null);
-    setIsLoadingComparison(true);
-    const params = new URLSearchParams({ range: overviewRange });
-    if (memberFilter !== "all") params.set("memberId", memberFilter);
-    if (selectedAccountId !== "all") params.set("accountId", selectedAccountId);
-    fetch(`/api/admin/stats?${params}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.cur && data?.prevDate) setActivityComparison({ cur: data.cur, prev: data.prev, prevDate: data.prevDate });
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingComparison(false));
-  }, [overviewRange, memberFilter, selectedAccountId]);
-
   // Accounts that have at least one item captured by the selected member
   const accountsForMember = useMemo(() => {
     if (memberFilter === "all") return accounts;
@@ -590,11 +568,6 @@ export default function Dashboard() {
     const accs = selected ? [selected] : accounts;
     return applyMemberFilter(accs, memberFilter === "all" ? null : memberFilter);
   }, [accounts, selected, memberFilter]);
-
-  const filteredSnapshots = useMemo(
-    () => overviewAccounts.flatMap((a) => a.snapshots),
-    [overviewAccounts],
-  );
 
   const [proposalsSortAsc, setProposalsSortAsc] = useState(false);
 
@@ -761,9 +734,12 @@ export default function Dashboard() {
   //   );
   // }
 
-  const lastSync = accounts
-    .filter((a) => a.latestSnapshot)
-    .sort((a, b) => new Date(b.latestSnapshot!.capturedAt).getTime() - new Date(a.latestSnapshot!.capturedAt).getTime())[0];
+  const lastProposalCapturedAt = accounts
+    .flatMap((a) => a.proposals)
+    .reduce((max, p) => {
+      const t = new Date(p.createdAt).getTime();
+      return t > max ? t : max;
+    }, 0);
 
   const TABS: { id: Tab; label: string; count?: number; icon: React.ReactNode }[] = [
     { id: "overview", label: "Overview", icon: <IconHome /> },
@@ -771,7 +747,6 @@ export default function Dashboard() {
     { id: "proposals", label: "Proposals", count: sortedProposalSections.reduce((s, [, p]) => s + p.length, 0), icon: <IconFile /> },
     { id: "alerts", label: "Alerts", count: unreadAlerts.length, icon: <IconBell /> },
     { id: "submissions", label: "Submissions", count: submissions.length, icon: <IconSend /> },
-    // { id: "snapshots", label: "Snapshots", count: filteredSnapshots.length, icon: <IconCamera /> },
   ];
 
   // ── Proposal section badge helper ──────────────────────────────────────────
@@ -1035,8 +1010,8 @@ export default function Dashboard() {
             </button>
             <div>
               <h1 className="text-sm font-semibold text-gray-900">{activeTabLabel}</h1>
-              {lastSync?.latestSnapshot && (
-                <p className="text-[11px] text-gray-400">Last sync {fmtDateTime(lastSync.latestSnapshot.capturedAt)}</p>
+              {lastProposalCapturedAt > 0 && (
+                <p className="text-[11px] text-gray-400">Last sync {fmtDateTime(new Date(lastProposalCapturedAt).toISOString())}</p>
               )}
             </div>
           </div>
@@ -1065,11 +1040,7 @@ export default function Dashboard() {
               <>
                 <OverviewPanel
                   accounts={overviewAccounts}
-                  range={overviewRange}
-                  onRangeChange={setOverviewRange}
                   showAccountComparison={!selected}
-                  activityComparison={activityComparison}
-                  isLoadingComparison={isLoadingComparison}
                 />
               </>
             );
@@ -1634,79 +1605,6 @@ export default function Dashboard() {
           )}
 
 
-          {/* ── Snapshots Tab ────────────────────────────────────────────────── */}
-          {activeTab === "snapshots" && (
-            <div className="py-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
-                  Snapshot History
-                  <span className="ml-2 text-gray-400 font-normal normal-case tracking-normal">({filteredSnapshots.length})</span>
-                </h2>
-              </div>
-
-              {filteredSnapshots.length === 0 ? (
-                <div className="border border-dashed border-gray-200 rounded-xl py-20 px-6 text-center">
-                  <div className="mx-auto w-12 h-12 rounded-full bg-teal-50 text-teal-500 border border-teal-100 flex items-center justify-center mb-4">
-                    <IconCamera />
-                  </div>
-                  <h3 className="text-sm font-semibold text-gray-700">No snapshots recorded yet</h3>
-                  <p className="text-xs text-gray-400 mt-1 max-w-md mx-auto">
-                    Visit the Upwork My Stats page with the extension active — a snapshot is captured automatically each time.
-                  </p>
-                </div>
-              ) : (
-                <div className="border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-200 bg-gray-50">
-                        {!selected && (
-                          <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Account</th>
-                        )}
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Date</th>
-                        <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Sent</th>
-                        <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Viewed</th>
-                        <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Interviewed</th>
-                        <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Hired</th>
-                        <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">View %</th>
-                        <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Hire %</th>
-                        <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Boosted</th>
-                        <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Organic</th>
-                        {filteredSnapshots.some((s) => s.jss !== null) && (
-                          <th className="text-right px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">JSS</th>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(selected ? [selected] : accounts).flatMap((acc) =>
-                        acc.snapshots.slice().reverse().slice(0, 100).map((s) => (
-                          <tr key={s.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                            {!selected && (
-                              <td className="px-4 py-2.5 text-gray-700 text-xs">{acc.name}</td>
-                            )}
-                            <td className="px-4 py-2.5 text-gray-600 text-xs whitespace-nowrap">{fmtDateTime(s.capturedAt)}</td>
-                            <td className="px-4 py-2.5 text-right font-medium" style={{ color: COLORS.blue }}>{s.sent}</td>
-                            <td className="px-4 py-2.5 text-right" style={{ color: COLORS.cyan }}>{s.viewed}</td>
-                            <td className="px-4 py-2.5 text-right" style={{ color: COLORS.purple }}>{s.interviewed}</td>
-                            <td className="px-4 py-2.5 text-right font-medium" style={{ color: COLORS.green }}>{s.hired}</td>
-                            <td className="px-4 py-2.5 text-right text-gray-500 text-xs">{s.viewRate}%</td>
-                            <td className="px-4 py-2.5 text-right text-gray-500 text-xs">{s.hireRate}%</td>
-                            <td className="px-4 py-2.5 text-right" style={{ color: COLORS.amber }}>{s.boostedSent}</td>
-                            <td className="px-4 py-2.5 text-right" style={{ color: COLORS.teal }}>{s.organicSent}</td>
-                            {filteredSnapshots.some((snap) => snap.jss !== null) && (
-                              <td className="px-4 py-2.5 text-right text-gray-600 text-xs">
-                                {s.jss !== null ? `${s.jss}%` : "—"}
-                              </td>
-                            )}
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* ── Accounts Tab ─────────────────────────────────────────────────── */}
           {activeTab === "accounts" && (
             <AccountManagementView
@@ -1733,7 +1631,7 @@ export default function Dashboard() {
 
           {/* ── Footer ───────────────────────────────────────────────────────── */}
           <div className="text-center text-xs text-gray-400 border-t border-gray-100 mt-4 py-4">
-            Upwork Tracker — {accounts.length} account{accounts.length !== 1 ? "s" : ""} — {filteredSnapshots.length} snapshots
+            Upwork Tracker — {accounts.length} account{accounts.length !== 1 ? "s" : ""}
           </div>
         </div>
       </main>

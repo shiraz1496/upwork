@@ -17,13 +17,14 @@ import {
   AreaChart,
   Area,
 } from "recharts";
-import type { AccountData, OverviewRange } from "@/lib/overview-types";
+import type { AccountData } from "@/lib/overview-types";
 import {
   computeAggregated,
-  computeDeltas,
   computeTimeSeriesData,
   computeFunnelData,
   computeSnapshotTimeline,
+  computePeriodComparison,
+  aggregateProposalsInRange,
   todayKey,
   daysAgoKey,
   fmt,
@@ -73,19 +74,9 @@ const IconArrowDown = () => (
   </svg>
 );
 
-export type ActivityComparison = {
-  cur: { sent: number; viewed: number; interviewed: number; hired: number };
-  prev: { sent: number; viewed: number; interviewed: number; hired: number };
-  prevDate: string;
-} | null;
-
 export type OverviewPanelProps = {
   accounts: AccountData[];
-  range: OverviewRange;
-  onRangeChange: (r: OverviewRange) => void;
   showAccountComparison?: boolean;
-  activityComparison?: ActivityComparison;
-  isLoadingComparison?: boolean;
 };
 
 function pct(cur: number, prev: number): number | null {
@@ -94,55 +85,52 @@ function pct(cur: number, prev: number): number | null {
 
 export function OverviewPanel({
   accounts,
-  range,
-  onRangeChange,
   showAccountComparison = false,
-  activityComparison,
-  isLoadingComparison = false,
 }: OverviewPanelProps) {
-  const [timelineFrom, setTimelineFrom] = useState(() => daysAgoKey(7));
-  const [timelineTo, setTimelineTo] = useState(() => todayKey());
+  const [from, setFrom] = useState(() => daysAgoKey(6));
+  const [to, setTo] = useState(() => todayKey());
 
-  const aggregated = useMemo(() => computeAggregated(accounts, range), [accounts, range]);
-  const deltas = useMemo(() => computeDeltas(accounts, range), [accounts, range]);
-  const timeSeriesData = useMemo(() => computeTimeSeriesData(accounts, range), [accounts, range]);
+  const aggregated = useMemo(() => computeAggregated(accounts, from, to), [accounts, from, to]);
+  const cmp = useMemo(() => computePeriodComparison(accounts, from, to), [accounts, from, to]);
+  const timeSeriesData = useMemo(() => computeTimeSeriesData(accounts, from, to), [accounts, from, to]);
   const funnelData = useMemo(() => computeFunnelData(aggregated), [aggregated]);
-  const timeline = useMemo(() => computeSnapshotTimeline(accounts, timelineFrom, timelineTo), [accounts, timelineFrom, timelineTo]);
+  const timeline = useMemo(() => computeSnapshotTimeline(accounts, from, to), [accounts, from, to]);
+  const perAccountComparison = useMemo(
+    () =>
+      accounts.map((a) => {
+        const t = aggregateProposalsInRange([a], from, to);
+        return {
+          name: a.name,
+          sent: t.sent,
+          viewed: t.viewed,
+          interviewed: t.interviewed,
+          hired: t.hired,
+        };
+      }),
+    [accounts, from, to],
+  );
 
   const prevTimeline = useMemo(() => {
-    const fromDate = new Date(timelineFrom + "T00:00:00");
-    const toDate   = new Date(timelineTo   + "T00:00:00");
+    const fromDate = new Date(from + "T00:00:00");
+    const toDate = new Date(to + "T00:00:00");
     const durationMs = toDate.getTime() - fromDate.getTime() + 24 * 60 * 60 * 1000;
-    const prevToDate   = new Date(fromDate.getTime() - 24 * 60 * 60 * 1000);
+    const prevToDate = new Date(fromDate.getTime() - 24 * 60 * 60 * 1000);
     const prevFromDate = new Date(prevToDate.getTime() - durationMs + 24 * 60 * 60 * 1000);
     const fmt2 = (d: Date) =>
       `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     return computeSnapshotTimeline(accounts, fmt2(prevFromDate), fmt2(prevToDate));
-  }, [accounts, timelineFrom, timelineTo]);
-
-  const rangeLabel = range === "7d" ? "7" : range === "30d" ? "30" : "90";
-
-  const cmp = activityComparison;
+  }, [accounts, from, to]);
 
   return (
     <div className="py-6">
       <div className="flex items-center justify-between mb-5">
         <div>
-        <h2 className="text-base font-semibold text-gray-900">Proposal performance</h2>
+          <h2 className="text-base font-semibold text-gray-900">Proposal performance</h2>
           <p className="text-xs text-gray-400 mt-0.5">
-            {aggregated.snapshotsInRange.length} snapshot
-            {aggregated.snapshotsInRange.length !== 1 ? "s" : ""} captured in this range
+            {aggregated.sent} proposal{aggregated.sent !== 1 ? "s" : ""} submitted in this range
           </p>
         </div>
-        <select
-          value={range}
-          onChange={(e) => onRangeChange(e.target.value as OverviewRange)}
-          className="text-xs border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer shadow-sm"
-        >
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="90d">Last 90 days</option>
-        </select>
+        <TimelineDatePicker from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -151,9 +139,6 @@ export function OverviewPanel({
           value={fmt(aggregated.sent)}
           color={COLORS.blue}
           delta={cmp ? pct(cmp.cur.sent, cmp.prev.sent) : null}
-          prevValue={cmp?.prev.sent}
-          prevDate={cmp?.prevDate}
-          isLoading={isLoadingComparison}
         />
         <StatCard
           label="Viewed"
@@ -161,9 +146,6 @@ export function OverviewPanel({
           sub={`${aggregated.viewRate}% view rate`}
           color={COLORS.cyan}
           delta={cmp ? pct(cmp.cur.viewed, cmp.prev.viewed) : null}
-          prevValue={cmp?.prev.viewed}
-          prevDate={cmp?.prevDate}
-          isLoading={isLoadingComparison}
         />
         <StatCard
           label="Interviewed"
@@ -171,9 +153,6 @@ export function OverviewPanel({
           sub={`${aggregated.interviewRate}% of sent`}
           color={COLORS.purple}
           delta={cmp ? pct(cmp.cur.interviewed, cmp.prev.interviewed) : null}
-          prevValue={cmp?.prev.interviewed}
-          prevDate={cmp?.prevDate}
-          isLoading={isLoadingComparison}
         />
         <StatCard
           label="Hired"
@@ -181,9 +160,6 @@ export function OverviewPanel({
           sub={`${aggregated.hireRate}% hire rate`}
           color={COLORS.green}
           delta={cmp ? pct(cmp.cur.hired, cmp.prev.hired) : null}
-          prevValue={cmp?.prev.hired}
-          prevDate={cmp?.prevDate}
-          isLoading={isLoadingComparison}
         />
         {aggregated.jss !== null && (
           <StatCard
@@ -201,22 +177,15 @@ export function OverviewPanel({
             color={COLORS.amber}
           />
         )}
-        <StatCard
-          label="Data Points"
-          value={aggregated.snapshotsInRange.length}
-          sub={`in last ${rangeLabel} days`}
-        />
+        {/* <StatCard
+          label="Active Days"
+          value={timeSeriesData.length}
+          sub="with proposal activity"
+        /> */}
       </div>
 
       {/* ── Snapshot timeline strip ──────────────────────────────────────── */}
-      <SnapshotTimeline
-        entries={timeline}
-        prevEntries={prevTimeline}
-        from={timelineFrom}
-        to={timelineTo}
-        onFromChange={setTimelineFrom}
-        onToChange={setTimelineTo}
-      />
+      <SnapshotTimeline entries={timeline} prevEntries={prevTimeline} />
 
       <SectionTitle>Conversion Pipeline</SectionTitle>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -348,13 +317,7 @@ export function OverviewPanel({
           <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
             <ResponsiveContainer width="100%" height={Math.max(200, accounts.length * 60)}>
               <BarChart
-                data={accounts.map((a) => ({
-                  name: a.name,
-                  sent: a.latestSnapshot?.funnel.sent ?? 0,
-                  viewed: a.latestSnapshot?.funnel.viewed ?? 0,
-                  interviewed: a.latestSnapshot?.funnel.interviewed ?? 0,
-                  hired: a.latestSnapshot?.funnel.hired ?? 0,
-                }))}
+                data={perAccountComparison}
                 layout="vertical"
               >
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
@@ -392,18 +355,12 @@ function StatCard({
   sub,
   color,
   delta,
-  prevValue,
-  prevDate,
-  isLoading = false,
 }: {
   label: string;
   value: string | number;
   sub?: string;
   color?: string;
   delta?: number | null;
-  prevValue?: number;
-  prevDate?: string;
-  isLoading?: boolean;
 }) {
   const up = delta != null && delta > 0;
   const down = delta != null && delta < 0;
@@ -411,17 +368,14 @@ function StatCard({
     <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-2 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">{label}</span>
-        {isLoading ? (
-          <div className="h-4 w-10 rounded bg-gray-200 animate-pulse" />
-        ) : delta != null ? (
+        {delta != null ? (
           <span
-            className={`inline-flex items-center gap-0.5 text-[11px] font-medium px-1.5 py-0.5 rounded ${
-              up
-                ? "bg-green-50 text-green-700"
-                : down
-                  ? "bg-rose-50 text-rose-700"
-                  : "bg-gray-50 text-gray-500"
-            }`}
+            className={`inline-flex items-center gap-0.5 text-[11px] font-medium px-1.5 py-0.5 rounded ${up
+              ? "bg-green-50 text-green-700"
+              : down
+                ? "bg-rose-50 text-rose-700"
+                : "bg-gray-50 text-gray-500"
+              }`}
           >
             {up && <IconArrowUp />}
             {down && <IconArrowDown />}
@@ -435,16 +389,6 @@ function StatCard({
       >
         {value}
       </span>
-      {/* {isLoading ? (
-        <div className="h-3 w-28 rounded bg-gray-200 animate-pulse" />
-      ) : prevValue !== undefined && prevDate !== undefined ? (
-        <div className="flex items-center gap-1.5 text-xs">
-          <span className="text-gray-400">Previously</span>
-          <span className="font-semibold text-gray-600">{fmt(prevValue)}</span>
-          <span className="text-gray-300">·</span>
-          <span className="text-gray-400">{prevDate} snapshot</span>
-        </div>
-      ) : null} */}
       {sub && <span className="text-xs text-gray-400">{sub}</span>}
     </div>
   );
@@ -577,7 +521,7 @@ function deltaPct(cur: number, prev: number): number | null {
 
 function DeltaBadge({ cur, prev }: { cur: number; prev: number }) {
   const d = deltaPct(cur, prev);
-  if (d === null || d === undefined || isNaN(d) ||d === 0) return null;
+  if (d === null || d === undefined || isNaN(d) || d === 0) return null;
   const up = d > 0;
   const neutral = d === 0;
   return (
@@ -591,45 +535,43 @@ function DeltaBadge({ cur, prev }: { cur: number; prev: number }) {
   );
 }
 
-function SnapshotTimeline({ entries, prevEntries, from, to, onFromChange, onToChange }: {
+function SnapshotTimeline({ entries, prevEntries }: {
   entries: TimelineEntry[];
   prevEntries: TimelineEntry[];
-  from: string;
-  to: string;
-  onFromChange: (v: string) => void;
-  onToChange: (v: string) => void;
 }) {
   const globalMax = Math.max(...entries.map((e) => e.proposalsSentOnDay), 1);
   const totalSent = entries.reduce((s, e) => s + e.proposalsSentOnDay, 0);
   const totalViewed = entries.reduce((s, e) => s + e.proposalsViewedOnDay, 0);
   const totalInterviewed = entries.reduce((s, e) => s + e.proposalsInterviewedOnDay, 0);
+  const totalHired = entries.reduce((s, e) => s + e.proposalsHiredOnDay, 0);
   const prevSent = prevEntries.reduce((s, e) => s + e.proposalsSentOnDay, 0);
   const prevViewed = prevEntries.reduce((s, e) => s + e.proposalsViewedOnDay, 0);
   const prevInterviewed = prevEntries.reduce((s, e) => s + e.proposalsInterviewedOnDay, 0);
+  const prevHired = prevEntries.reduce((s, e) => s + e.proposalsHiredOnDay, 0);
 
   return (
     <div className="mt-5 mb-1">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Proposal history</h2>
-          <div className="flex items-center gap-4 text-[10px] text-gray-400">
+          {/* <div className="flex items-center gap-4 text-[10px] text-gray-400">
             {[
               { color: COLORS.blue, label: "Sent", count: totalSent, prev: prevSent },
               { color: COLORS.cyan, label: "Viewed", count: totalViewed, prev: prevViewed },
               { color: COLORS.purple, label: "Interviewed", count: totalInterviewed, prev: prevInterviewed },
+              { color: COLORS.green, label: "Hired", count: totalHired, prev: prevHired },
             ].map(({ color, label, count, prev }) => (
               <span key={label} className="flex items-center gap-2">
                 <div className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-sm inline-block" style={{ background: color }} />
-                {label}
-                <span className="font-semibold text-gray-500">{count}</span>
+                  <span className="w-2 h-2 rounded-sm inline-block" style={{ background: color }} />
+                  {label}
+                  <span className="font-semibold text-gray-500">{count}</span>
                 </div>
                 <DeltaBadge cur={count} prev={prev} />
               </span>
             ))}
-          </div>
+          </div> */}
         </div>
-        <TimelineDatePicker from={from} to={to} onFromChange={onFromChange} onToChange={onToChange} />
       </div>
       {entries.length === 0 && (
         <p className="text-xs text-gray-400 py-4">No proposals submitted in this period.</p>
@@ -646,11 +588,10 @@ function SnapshotTimeline({ entries, prevEntries, from, to, onFromChange, onToCh
           return (
             <div
               key={entry.capturedAt}
-              className={`group flex-shrink-0 rounded-xl border flex flex-col gap-2.5 p-3 w-[116px] transition-all duration-150 ${
-                entry.isLatest
-                  ? "border-teal-300 bg-gradient-to-b from-teal-50 to-white shadow-sm shadow-teal-100/60"
-                  : "border-gray-200 bg-white shadow-sm hover:shadow-md hover:shadow-gray-100/80"
-              }`}
+              className={`group flex-shrink-0 rounded-xl border flex flex-col gap-2.5 p-3 w-[116px] transition-all duration-150 ${entry.isLatest
+                ? "border-teal-300 bg-gradient-to-b from-teal-50 to-white shadow-sm shadow-teal-100/60"
+                : "border-gray-200 bg-white shadow-sm hover:shadow-md hover:shadow-gray-100/80"
+                }`}
             >
               {/* Day + date */}
               <div className="flex items-start justify-between">
@@ -675,6 +616,7 @@ function SnapshotTimeline({ entries, prevEntries, from, to, onFromChange, onToCh
                   { val: count, color: COLORS.blue },
                   { val: viewed, color: COLORS.cyan },
                   { val: interviewed, color: COLORS.purple },
+                  { val: entry.proposalsHiredOnDay, color: COLORS.green },
                 ].map(({ val, color }, bi) => {
                   const pct = Math.max((val / globalMax) * 100, val > 0 ? 6 : 0);
                   return (
@@ -702,6 +644,7 @@ function SnapshotTimeline({ entries, prevEntries, from, to, onFromChange, onToCh
                   { val: count, label: "sent", color: COLORS.blue },
                   { val: viewed, label: "viewed", color: COLORS.cyan },
                   { val: interviewed, label: "interviewed", color: COLORS.purple },
+                  { val: entry.proposalsHiredOnDay, label: "hired", color: COLORS.green },
                 ].map(({ val, label, color }) => (
                   <div key={label} className="flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-sm inline-block shrink-0" style={{ background: color }} />

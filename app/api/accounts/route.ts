@@ -6,9 +6,6 @@ export async function GET() {
     const accounts = await prisma.account.findMany({
       include: {
         profile: { include: { capturedByUser: { select: { id: true, name: true } } } },
-        snapshots: {
-          orderBy: { capturedAt: "desc" },
-        },
         proposals: {
           orderBy: { createdAt: "desc" },
           take: 100,
@@ -27,44 +24,6 @@ export async function GET() {
     });
 
     const result = accounts.map((account) => {
-      const snapshots = account.snapshots;
-      const latest = snapshots[0];
-
-      const snapshotSummaries = snapshots
-        .map((s) => {
-          const sent = (s.proposalsSentBoosted ?? 0) + (s.proposalsSentOrganic ?? 0);
-          const viewed = (s.proposalsViewedBoosted ?? 0) + (s.proposalsViewedOrganic ?? 0);
-          const interviewed = (s.proposalsInterviewedBoosted ?? 0) + (s.proposalsInterviewedOrganic ?? 0);
-          const hired = (s.proposalsHiredBoosted ?? 0) + (s.proposalsHiredOrganic ?? 0);
-          return {
-            id: s.id,
-            capturedAt: s.capturedAt,
-            startTimestamp: s.startTimestamp,
-            endTimestamp: s.endTimestamp,
-            range: s.range,
-            jss: s.jss,
-            connectsBalance: s.connectsBalance,
-            sent, viewed, interviewed, hired,
-            boostedSent: s.proposalsSentBoosted ?? 0,
-            organicSent: s.proposalsSentOrganic ?? 0,
-            boostedViewed: s.proposalsViewedBoosted ?? 0,
-            organicViewed: s.proposalsViewedOrganic ?? 0,
-            boostedInterviewed: s.proposalsInterviewedBoosted ?? 0,
-            organicInterviewed: s.proposalsInterviewedOrganic ?? 0,
-            boostedHired: s.proposalsHiredBoosted ?? 0,
-            organicHired: s.proposalsHiredOrganic ?? 0,
-            viewRate: sent > 0 ? Math.round((viewed / sent) * 1000) / 10 : 0,
-            interviewRate: sent > 0 ? Math.round((interviewed / sent) * 1000) / 10 : 0,
-            hireRate: sent > 0 ? Math.round((hired / sent) * 1000) / 10 : 0,
-          };
-        })
-        .reverse();
-
-      const latestSent = latest ? (latest.proposalsSentBoosted ?? 0) + (latest.proposalsSentOrganic ?? 0) : 0;
-      const latestViewed = latest ? (latest.proposalsViewedBoosted ?? 0) + (latest.proposalsViewedOrganic ?? 0) : 0;
-      const latestInterviewed = latest ? (latest.proposalsInterviewedBoosted ?? 0) + (latest.proposalsInterviewedOrganic ?? 0) : 0;
-      const latestHired = latest ? (latest.proposalsHiredBoosted ?? 0) + (latest.proposalsHiredOrganic ?? 0) : 0;
-
       return {
         id: account.id,
         freelancerId: account.freelancerId,
@@ -74,33 +33,6 @@ export async function GET() {
         isDisabled: account.isDisabled,
         disabledReason: account.disabledReason ?? null,
         createdAt: account.createdAt,
-        latestSnapshot: latest
-          ? {
-              capturedAt: latest.capturedAt,
-              startTimestamp: latest.startTimestamp,
-              endTimestamp: latest.endTimestamp,
-              jss: latest.jss ?? account.jss,
-              connectsBalance: latest.connectsBalance ?? account.connectsBalance,
-              funnel: { sent: latestSent, viewed: latestViewed, interviewed: latestInterviewed, hired: latestHired },
-              boosted: {
-                sent: latest.proposalsSentBoosted ?? 0,
-                viewed: latest.proposalsViewedBoosted ?? 0,
-                interviewed: latest.proposalsInterviewedBoosted ?? 0,
-                hired: latest.proposalsHiredBoosted ?? 0,
-              },
-              organic: {
-                sent: latest.proposalsSentOrganic ?? 0,
-                viewed: latest.proposalsViewedOrganic ?? 0,
-                interviewed: latest.proposalsInterviewedOrganic ?? 0,
-                hired: latest.proposalsHiredOrganic ?? 0,
-              },
-              viewRate: latestSent > 0 ? Math.round((latestViewed / latestSent) * 1000) / 10 : 0,
-              interviewRate: latestSent > 0 ? Math.round((latestInterviewed / latestSent) * 1000) / 10 : 0,
-              hireRate: latestSent > 0 ? Math.round((latestHired / latestSent) * 1000) / 10 : 0,
-            }
-          : null,
-        snapshots: snapshotSummaries,
-        snapshotCount: snapshots.length,
         proposals: account.proposals.map((p) => ({
           id: p.id,
           jobTitle: p.jobTitle,
@@ -144,6 +76,14 @@ export async function GET() {
           clientTotalHours: p.clientTotalHours,
           clientMemberSince: p.clientMemberSince,
           clientPaymentVerified: p.clientPaymentVerified,
+          clientCompany: p.clientCompany,
+          hiredAt: p.hiredAt,
+          contractEndedAt: p.contractEndedAt,
+          contractStatus: p.contractStatus,
+          contractRating: p.contractRating,
+          contractBudget: p.contractBudget,
+          contractRate: p.contractRate,
+          contractWeeklyLimit: p.contractWeeklyLimit,
           createdAt: p.createdAt,
           capturedBy: p.capturedByUser
             ? { id: p.capturedByUser.id, name: p.capturedByUser.name }

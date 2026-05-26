@@ -986,7 +986,13 @@ function scrapeAccount() {
   }
 
   // ── Numeric stats (top metrics block) ──
-  const connectsMatch = bodyText.match(/connects\s*:?\s*([\d,]+)/i);
+  // Upwork renders connects in several ways on the profile page: "Available
+  // Connects: 129", "Connects: 129", or just "129 Connects" in the header
+  // chip. Try the most specific patterns first.
+  const connectsMatch =
+    bodyText.match(/available\s+connects?\s*:?\s*([\d,]+)/i) ||
+    bodyText.match(/\bconnects?\s*:\s*([\d,]+)/i) ||
+    bodyText.match(/\b([\d,]+)\s+connects?\b/i);
   if (connectsMatch) info.connectsBalance = parseInt(connectsMatch[1].replace(/,/g, ""));
 
   const jssMatch =
@@ -1180,75 +1186,6 @@ function extractOverview() {
     .filter((t) => t.length > 200 && t.length < 5000)
     .filter((t) => !isBlurb(t));
   return paragraphs[0] || null;
-}
-
-// ── SCRAPER: Stats Page ──
-function scrapeStats() {
-  console.log("[UT] Scraping stats page...");
-
-  const stats = { capturedAt: new Date().toISOString(), metrics: {} };
-  const bodyText = document.body.innerText;
-
-  // Detect which Upwork date-range filter is active on the Proposals card.
-  // Dropdown options are kept in the DOM even when the dropdown is closed —
-  // we must exclude those (they're hidden) and only match the visible trigger.
-  // Also when walking up we must not cross into an ancestor that encompasses
-  // both the Proposals card and the Profile Metrics card (which also has a
-  // "Last N days" dropdown).
-  (() => {
-    const labels = Array.from(document.querySelectorAll("button, span, div, [role='button']"))
-      .filter((el) => {
-        if (!/^Last\s+(7|30|90)\s+days$/i.test((el.textContent || "").trim())) return false;
-        const rect = el.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
-      });
-    for (const label of labels) {
-      let parent = label.parentElement;
-      for (let i = 0; i < 10 && parent; i++) {
-        const txt = parent.innerText || "";
-        if (/profile\s+metrics/i.test(txt)) break;
-        if (/\d+\s+proposals?\s+sent/i.test(txt)) {
-          const m = label.textContent.trim().match(/^Last\s+(7|30|90)\s+days$/i);
-          if (m) {
-            stats.range = m[1] === "7" ? "7d" : m[1] === "30" ? "30d" : "90d";
-            return;
-          }
-        }
-        parent = parent.parentElement;
-      }
-    }
-  })();
-
-  const metricPatterns = {
-    proposals_sent: [/(\d+)\s*proposals?\s*sent/i, /sent\s*:?\s*(\d+)/i],
-    proposals_viewed: [/(\d+)\s*(?:proposals?\s*)?(?:were\s*)?viewed/i, /(\d+)\s*were\s*viewed/i, /viewed\s*:?\s*(\d+)/i],
-    proposals_interviewed: [/(\d+)\s*interview(?:s|ed)?/i, /interview(?:ed|s)?\s*:?\s*(\d+)/i],
-    proposals_hired: [/(\d+)\s*hire[ds]?/i, /hire[ds]?\s*:?\s*(\d+)/i],
-  };
-
-  for (const [key, patterns] of Object.entries(metricPatterns)) {
-    for (const regex of patterns) {
-      const match = bodyText.match(regex);
-      if (match) {
-        stats.metrics[key] = parseInt(match[1]);
-        break;
-      }
-    }
-  }
-
-  const connectsMatch = bodyText.match(/connects\s*:?\s*([\d,]+)/i);
-  if (connectsMatch) stats.connectsBalance = parseInt(connectsMatch[1].replace(/,/g, ""));
-
-  const jssMatch = bodyText.match(/job\s*success\s*(?:score)?\s*:?\s*(\d+)/i);
-  if (jssMatch) stats.jss = parseInt(jssMatch[1]);
-
-  stats.rawText = bodyText.slice(0, 3000);
-
-  if (Object.keys(stats.metrics).length > 0 || stats.jss || stats.connectsBalance) {
-    sendToBackground("SCRAPED_STATS", stats);
-  } else {
-    sendToBackground("SCRAPED_STATS_RAW", { rawText: stats.rawText, capturedAt: stats.capturedAt });
-  }
 }
 
 // ── Scroll entire page/panel to trigger lazy-loaded content ──
@@ -3352,6 +3289,126 @@ function isFeedPage(url) {
 }
 
 // ── Page router ──
+// ── Contracts page scraper (/nx/wm/freelancer/contracts) ─────────────────────
+// Page structure (from real observation):
+//   {title}
+//   Propose new contract | See timesheet
+//   More options
+//   Hired by {client name}      ← anchor
+//   {client company}
+//   {date range}  e.g. "May 15 - May 22" or "May 7 - Present"
+//   {status}      Active | Ended | Paused | Suspended
+//   Rating is X.X out of 5.    (optional)
+//   X.X                         (optional)
+//   ${budget} Budget | Rate: ${rate}/hr, XX hrs weekly limit
+async function scrapeContracts() {
+  console.log("[UT] scrapeContracts: called");
+
+  const THROTTLE_KEY = "lastScrapeContracts";
+  const stored = await chrome.storage.local.get([THROTTLE_KEY]);
+  const lastScrape = stored[THROTTLE_KEY] || 0;
+  const elapsed = Date.now() - lastScrape;
+  if (elapsed < 24 * 60 * 60 * 1000) {
+    const nextIn = Math.round((24 * 60 * 60 * 1000 - elapsed) / 3600000);
+    console.log("[UT] scrapeContracts: throttled — last scraped", new Date(lastScrape).toLocaleString(), `(next in ~${nextIn}h)`);
+    return;
+  }
+
+  console.log("[UT] scrapeContracts: waiting for page to render...");
+  await new Promise((r) => setTimeout(r, 3000));
+
+  const bodyText = document.body.innerText;
+  console.log("[UT] scrapeContracts: page text length =", bodyText.length);
+  console.log("[UT] scrapeContracts: page text preview =", bodyText.slice(0, 1000));
+
+  const lines = bodyText.split("\n").map((l) => l.trim()).filter(Boolean);
+  const SKIP_LINES = /^(Propose new contract|See timesheet|More options|Download CSV|Filters|Sort by|All contracts|Skip to content|Upwork home|Find work|Deliver work|Manage finances|Messages|Search category|Jobs|Account Settings|\d+ total|\d+ results available|Start date|Descending|Ascending)$/i;
+
+  // Find all "Hired by X" anchor indices
+  const hiredByIndices = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (/^Hired by\s+.+/i.test(lines[i])) hiredByIndices.push(i);
+  }
+  console.log("[UT] scrapeContracts: found", hiredByIndices.length, '"Hired by" anchors at lines', hiredByIndices);
+
+  const contracts = [];
+
+  for (let hi = 0; hi < hiredByIndices.length; hi++) {
+    const anchorIdx = hiredByIndices[hi];
+    const nextAnchorIdx = hiredByIndices[hi + 1] ?? lines.length;
+
+    // Title: scan backwards from anchor, skipping noise lines
+    let title = null;
+    for (let j = anchorIdx - 1; j >= Math.max(0, anchorIdx - 6); j--) {
+      if (!SKIP_LINES.test(lines[j]) && lines[j].length > 3) {
+        title = lines[j];
+        break;
+      }
+    }
+    if (!title) {
+      console.log("[UT] scrapeContracts: could not find title before index", anchorIdx, "— skipping");
+      continue;
+    }
+
+    const contract = { title };
+
+    // Client company: first non-skip line after "Hired by X"
+    for (let j = anchorIdx + 1; j < Math.min(anchorIdx + 4, nextAnchorIdx); j++) {
+      if (!SKIP_LINES.test(lines[j]) && !/^Hired by/i.test(lines[j]) && lines[j].length > 1) {
+        contract.clientCompany = lines[j];
+        break;
+      }
+    }
+
+    // Scan forward within this contract block for dates, status, rate, budget, rating
+    for (let j = anchorIdx + 1; j < nextAnchorIdx; j++) {
+      const line = lines[j];
+
+      // Date range: "May 15 - May 22" or "May 7 - Present"
+      const dateRange = line.match(/^([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?)\s*[-–]\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?|Present|present)?$/);
+      if (dateRange && !contract.startDate) {
+        contract.startDate = dateRange[1]?.trim() || null;
+        const endRaw = dateRange[2]?.trim() || null;
+        contract.endDate = !endRaw || /present/i.test(endRaw) ? null : endRaw;
+      }
+
+      // Status
+      if (/^(Active|Ended|Paused|Suspended)$/i.test(line) && !contract.status) {
+        contract.status = line;
+      }
+
+      // Rating: "Rating is 5.0 out of 5." or standalone "5.0"
+      const ratingLine = line.match(/Rating is ([\d.]+) out of/i);
+      if (ratingLine && !contract.rating) contract.rating = ratingLine[1];
+      const standaloneRating = line.match(/^([\d]\.\d{1,2})$/);
+      if (standaloneRating && !contract.rating) contract.rating = standaloneRating[1];
+
+      // Rate: "Rate: $20.00/hr, 20 hrs weekly limit"
+      const rateLine = line.match(/Rate:\s*(\$[\d,.]+\/hr)/i);
+      if (rateLine && !contract.rate) contract.rate = rateLine[1].replace(/\s/g, "");
+      const weeklyMatch = line.match(/(\d+)\s*hrs?\s*weekly\s*limit/i);
+      if (weeklyMatch && !contract.weeklyLimit) contract.weeklyLimit = weeklyMatch[1] + " hrs/week";
+
+      // Budget: "$90.00 Budget"
+      const budgetLine = line.match(/^(\$[\d,.]+)\s+Budget$/i);
+      if (budgetLine && !contract.budget) contract.budget = budgetLine[1];
+    }
+
+    console.log("[UT] scrapeContracts: parsed →", JSON.stringify(contract));
+    contracts.push(contract);
+  }
+
+  console.log("[UT] scrapeContracts: total parsed =", contracts.length);
+
+  if (contracts.length > 0) {
+    await chrome.storage.local.set({ [THROTTLE_KEY]: Date.now() });
+    console.log("[UT] scrapeContracts: sending to background →", JSON.stringify(contracts));
+    sendToBackground("SCRAPED_CONTRACTS", { contracts });
+  } else {
+    console.warn("[UT] scrapeContracts: no contracts found — check page text preview above");
+  }
+}
+
 function detectPageAndScrape() {
   const url = window.location.href;
   console.log("[UT] Detecting page type for:", url);
@@ -3397,9 +3454,7 @@ function detectPageAndScrape() {
     return;
   }
 
-  if (url.includes("/nx/my-stats") || url.includes("/my-stats")) {
-    scrapeStats();
-  } else if (url.match(/\/jobs\/~/) || url.match(/\/ab\/proposals\/job\//) || url.match(/\/nx\/proposals\/job\//)) {
+  if (url.match(/\/jobs\/~/) || url.match(/\/ab\/proposals\/job\//) || url.match(/\/nx\/proposals\/job\//)) {
     scrapeJob();
   } else if (url.match(/\/nx\/proposals\/interview\/uid\/\d+/) || url.match(/\/ab\/proposals\/interview\/uid\/\d+/)) {
     scrapeProposalDetail();
@@ -3407,6 +3462,8 @@ function detectPageAndScrape() {
     scrapeProposalDetail();
   } else if (url.includes("/nx/proposals") || url.includes("/ab/proposals")) {
     scrapeProposals();
+  } else if (url.includes("/nx/wm/freelancer/contracts")) {
+    scrapeContracts();
   } else if (isFeedPage(url)) {
     scrapeFeed();
     // Also check if a job detail panel is open on the feed page
@@ -3465,38 +3522,6 @@ function watchForJobPanel() {
       document.getElementById("ut-criteria-panel")?.remove();
     }
   }, 800);
-}
-
-// ── Watch for filter changes on stats page ──
-let statsObserverStarted = false;
-let statsDebounceTimer = null;
-function watchForStatsChanges() {
-  if (statsObserverStarted) return;
-  statsObserverStarted = true;
-  console.log("[UT] Watching stats page for filter changes...");
-
-  // Track the page text to detect when numbers change
-  let lastStatsText = document.body.innerText.slice(0, 2000);
-
-  const observer = new MutationObserver(() => {
-    try {
-      const currentText = document.body.innerText.slice(0, 2000);
-      if (currentText !== lastStatsText) {
-        lastStatsText = currentText;
-        clearTimeout(statsDebounceTimer);
-        statsDebounceTimer = setTimeout(() => {
-          try {
-            console.log("[UT] Stats page content changed, re-scraping...");
-            scrapeStats();
-          } catch (e) { console.error("[UT] scrapeStats threw:", e); }
-        }, 2000);
-      }
-    } catch (e) {
-      console.error("[UT] stats observer threw:", e);
-    }
-  });
-
-  observer.observe(document.body, { childList: true, subtree: true });
 }
 
 // ── Watch for pagination changes on proposals page ──
@@ -3579,9 +3604,6 @@ function runWithDelay(delayMs = 3000) {
       if (isFeedPage(url)) {
         watchForJobPanel();
         watchForFeedCardVerdicts();
-      }
-      if (url.includes("/nx/my-stats") || url.includes("/my-stats")) {
-        watchForStatsChanges();
       }
       if (url.includes("/nx/proposals") && !url.match(/\/nx\/proposals\/\d+/)) {
         watchForProposalPageChanges();

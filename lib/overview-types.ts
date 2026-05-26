@@ -1,30 +1,3 @@
-export interface SnapshotSummary {
-  id: string;
-  capturedAt: string;
-  startTimestamp: string | null;
-  endTimestamp: string | null;
-  range: string | null;
-  jss: number | null;
-  connectsBalance: number | null;
-  sent: number;
-  viewed: number;
-  interviewed: number;
-  hired: number;
-  boostedSent: number;
-  organicSent: number;
-  boostedViewed: number;
-  organicViewed: number;
-  boostedInterviewed: number;
-  organicInterviewed: number;
-  boostedHired: number;
-  organicHired: number;
-  viewRate: number;
-  interviewRate: number;
-  hireRate: number;
-  capturedBy: { id: string; name: string } | null;
-}
-
-
 export interface ProposalData {
   id: string;
   jobTitle: string | null;
@@ -68,6 +41,14 @@ export interface ProposalData {
   clientTotalHours: string | null;
   clientMemberSince: string | null;
   clientPaymentVerified: boolean;
+  clientCompany: string | null;
+  hiredAt: string | null;
+  contractEndedAt: string | null;
+  contractStatus: string | null;
+  contractRating: number | null;
+  contractBudget: string | null;
+  contractRate: string | null;
+  contractWeeklyLimit: string | null;
   createdAt: string;
   capturedBy: { id: string; name: string } | null;
   submittedBy: { id: string; name: string } | null;
@@ -109,21 +90,6 @@ export interface AccountData {
   isDisabled: boolean;
   disabledReason: string | null;
   createdAt: string;
-  latestSnapshot: {
-    capturedAt: string;
-    startTimestamp: string | null;
-    endTimestamp: string | null;
-    jss: number | null;
-    connectsBalance: number | null;
-    funnel: { sent: number; viewed: number; interviewed: number; hired: number };
-    boosted: { sent: number; viewed: number; interviewed: number; hired: number };
-    organic: { sent: number; viewed: number; interviewed: number; hired: number };
-    viewRate: number;
-    interviewRate: number;
-    hireRate: number;
-  } | null;
-  snapshots: SnapshotSummary[];
-  snapshotCount: number;
   proposals: ProposalData[];
   proposalCount: number;
   alertCounts?: { messages: number; invites: number; offers: number };
@@ -145,4 +111,3 @@ export interface FreelancerProfileData {
   capturedBy: { id: string; name: string } | null;
 }
 
-export type OverviewRange = "7d" | "30d" | "90d";
