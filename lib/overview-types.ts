@@ -68,6 +68,14 @@ export interface ProposalData {
   clientTotalHours: string | null;
   clientMemberSince: string | null;
   clientPaymentVerified: boolean;
+  clientCompany: string | null;
+  hiredAt: string | null;
+  contractEndedAt: string | null;
+  contractStatus: string | null;
+  contractRating: number | null;
+  contractBudget: string | null;
+  contractRate: string | null;
+  contractWeeklyLimit: string | null;
   createdAt: string;
   capturedBy: { id: string; name: string } | null;
   submittedBy: { id: string; name: string } | null;

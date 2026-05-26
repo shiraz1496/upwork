@@ -53,29 +53,70 @@ export const POST = withAttribution(async ({ req, member }) => {
       });
     }
 
-    const snapshot = await prisma.snapshot.create({
-      data: {
-        accountId: account.id,
-        capturedAt: capturedAt ? new Date(capturedAt) : new Date(),
-        startTimestamp: startTimestamp ?? null,
-        endTimestamp: endTimestamp ?? null,
-        range: range ?? null,
-        jss: jss ?? null,
-        connectsBalance: connectsBalance ?? null,
-        proposalsSentBoosted: totals.proposals_sent_boosted,
-        proposalsSentOrganic: totals.proposals_sent_organic,
-        proposalsViewedBoosted: totals.proposals_viewed_boosted,
-        proposalsViewedOrganic: totals.proposals_viewed_organic,
-        proposalsInterviewedBoosted: totals.proposals_interviewed_boosted,
-        proposalsInterviewedOrganic: totals.proposals_interviewed_organic,
-        proposalsHiredBoosted: totals.proposals_hired_boosted,
-        proposalsHiredOrganic: totals.proposals_hired_organic,
-        seriesJson: series ? JSON.stringify(series) : null,
-        capturedByUserId: member.id,
-      },
-    });
+    const now = capturedAt ? new Date(capturedAt) : new Date();
 
-    return NextResponse.json({ ok: true, snapshotId: snapshot.id });
+    // One snapshot per account per range per calendar day (UTC).
+    // If one already exists today, update it — no matter which bidder captured it first.
+    const todayStart = new Date(now);
+    todayStart.setUTCHours(0, 0, 0, 0);
+
+    const existing = range
+      ? await prisma.snapshot.findFirst({
+          where: {
+            accountId: account.id,
+            range,
+            capturedAt: { gte: todayStart },
+          },
+          orderBy: { capturedAt: "desc" },
+        })
+      : null;
+
+    let snapshot;
+    if (existing) {
+      snapshot = await prisma.snapshot.update({
+        where: { id: existing.id },
+        data: {
+          capturedAt: now,
+          startTimestamp: startTimestamp ?? null,
+          endTimestamp: endTimestamp ?? null,
+          jss: jss ?? null,
+          connectsBalance: connectsBalance ?? null,
+          proposalsSentBoosted: totals.proposals_sent_boosted,
+          proposalsSentOrganic: totals.proposals_sent_organic,
+          proposalsViewedBoosted: totals.proposals_viewed_boosted,
+          proposalsViewedOrganic: totals.proposals_viewed_organic,
+          proposalsInterviewedBoosted: totals.proposals_interviewed_boosted,
+          proposalsInterviewedOrganic: totals.proposals_interviewed_organic,
+          proposalsHiredBoosted: totals.proposals_hired_boosted,
+          proposalsHiredOrganic: totals.proposals_hired_organic,
+          seriesJson: series ? JSON.stringify(series) : null,
+        },
+      });
+    } else {
+      snapshot = await prisma.snapshot.create({
+        data: {
+          accountId: account.id,
+          capturedAt: now,
+          startTimestamp: startTimestamp ?? null,
+          endTimestamp: endTimestamp ?? null,
+          range: range ?? null,
+          jss: jss ?? null,
+          connectsBalance: connectsBalance ?? null,
+          proposalsSentBoosted: totals.proposals_sent_boosted,
+          proposalsSentOrganic: totals.proposals_sent_organic,
+          proposalsViewedBoosted: totals.proposals_viewed_boosted,
+          proposalsViewedOrganic: totals.proposals_viewed_organic,
+          proposalsInterviewedBoosted: totals.proposals_interviewed_boosted,
+          proposalsInterviewedOrganic: totals.proposals_interviewed_organic,
+          proposalsHiredBoosted: totals.proposals_hired_boosted,
+          proposalsHiredOrganic: totals.proposals_hired_organic,
+          seriesJson: series ? JSON.stringify(series) : null,
+          capturedByUserId: member.id,
+        },
+      });
+    }
+
+    return NextResponse.json({ ok: true, snapshotId: snapshot.id, updated: !!existing });
   } catch (err) {
     console.error("[sync]", err);
     return NextResponse.json({ error: "Sync failed" }, { status: 500 });

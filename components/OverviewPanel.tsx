@@ -603,9 +603,11 @@ function SnapshotTimeline({ entries, prevEntries, from, to, onFromChange, onToCh
   const totalSent = entries.reduce((s, e) => s + e.proposalsSentOnDay, 0);
   const totalViewed = entries.reduce((s, e) => s + e.proposalsViewedOnDay, 0);
   const totalInterviewed = entries.reduce((s, e) => s + e.proposalsInterviewedOnDay, 0);
+  const totalHired = entries.reduce((s, e) => s + e.proposalsHiredOnDay, 0);
   const prevSent = prevEntries.reduce((s, e) => s + e.proposalsSentOnDay, 0);
   const prevViewed = prevEntries.reduce((s, e) => s + e.proposalsViewedOnDay, 0);
   const prevInterviewed = prevEntries.reduce((s, e) => s + e.proposalsInterviewedOnDay, 0);
+  const prevHired = prevEntries.reduce((s, e) => s + e.proposalsHiredOnDay, 0);
 
   return (
     <div className="mt-5 mb-1">
@@ -617,6 +619,7 @@ function SnapshotTimeline({ entries, prevEntries, from, to, onFromChange, onToCh
               { color: COLORS.blue, label: "Sent", count: totalSent, prev: prevSent },
               { color: COLORS.cyan, label: "Viewed", count: totalViewed, prev: prevViewed },
               { color: COLORS.purple, label: "Interviewed", count: totalInterviewed, prev: prevInterviewed },
+              { color: COLORS.green, label: "Hired", count: totalHired, prev: prevHired },
             ].map(({ color, label, count, prev }) => (
               <span key={label} className="flex items-center gap-2">
                 <div className="flex items-center gap-1">
@@ -675,6 +678,7 @@ function SnapshotTimeline({ entries, prevEntries, from, to, onFromChange, onToCh
                   { val: count, color: COLORS.blue },
                   { val: viewed, color: COLORS.cyan },
                   { val: interviewed, color: COLORS.purple },
+                  { val: entry.proposalsHiredOnDay, color: COLORS.green },
                 ].map(({ val, color }, bi) => {
                   const pct = Math.max((val / globalMax) * 100, val > 0 ? 6 : 0);
                   return (
@@ -702,6 +706,7 @@ function SnapshotTimeline({ entries, prevEntries, from, to, onFromChange, onToCh
                   { val: count, label: "sent", color: COLORS.blue },
                   { val: viewed, label: "viewed", color: COLORS.cyan },
                   { val: interviewed, label: "interviewed", color: COLORS.purple },
+                  { val: entry.proposalsHiredOnDay, label: "hired", color: COLORS.green },
                 ].map(({ val, label, color }) => (
                   <div key={label} className="flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-sm inline-block shrink-0" style={{ background: color }} />

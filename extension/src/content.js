@@ -3352,6 +3352,126 @@ function isFeedPage(url) {
 }
 
 // ── Page router ──
+// ── Contracts page scraper (/nx/wm/freelancer/contracts) ─────────────────────
+// Page structure (from real observation):
+//   {title}
+//   Propose new contract | See timesheet
+//   More options
+//   Hired by {client name}      ← anchor
+//   {client company}
+//   {date range}  e.g. "May 15 - May 22" or "May 7 - Present"
+//   {status}      Active | Ended | Paused | Suspended
+//   Rating is X.X out of 5.    (optional)
+//   X.X                         (optional)
+//   ${budget} Budget | Rate: ${rate}/hr, XX hrs weekly limit
+async function scrapeContracts() {
+  console.log("[UT] scrapeContracts: called");
+
+  const THROTTLE_KEY = "lastScrapeContracts";
+  const stored = await chrome.storage.local.get([THROTTLE_KEY]);
+  const lastScrape = stored[THROTTLE_KEY] || 0;
+  const elapsed = Date.now() - lastScrape;
+  if (elapsed < 24 * 60 * 60 * 1000) {
+    const nextIn = Math.round((24 * 60 * 60 * 1000 - elapsed) / 3600000);
+    console.log("[UT] scrapeContracts: throttled — last scraped", new Date(lastScrape).toLocaleString(), `(next in ~${nextIn}h)`);
+    return;
+  }
+
+  console.log("[UT] scrapeContracts: waiting for page to render...");
+  await new Promise((r) => setTimeout(r, 3000));
+
+  const bodyText = document.body.innerText;
+  console.log("[UT] scrapeContracts: page text length =", bodyText.length);
+  console.log("[UT] scrapeContracts: page text preview =", bodyText.slice(0, 1000));
+
+  const lines = bodyText.split("\n").map((l) => l.trim()).filter(Boolean);
+  const SKIP_LINES = /^(Propose new contract|See timesheet|More options|Download CSV|Filters|Sort by|All contracts|Skip to content|Upwork home|Find work|Deliver work|Manage finances|Messages|Search category|Jobs|Account Settings|\d+ total|\d+ results available|Start date|Descending|Ascending)$/i;
+
+  // Find all "Hired by X" anchor indices
+  const hiredByIndices = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (/^Hired by\s+.+/i.test(lines[i])) hiredByIndices.push(i);
+  }
+  console.log("[UT] scrapeContracts: found", hiredByIndices.length, '"Hired by" anchors at lines', hiredByIndices);
+
+  const contracts = [];
+
+  for (let hi = 0; hi < hiredByIndices.length; hi++) {
+    const anchorIdx = hiredByIndices[hi];
+    const nextAnchorIdx = hiredByIndices[hi + 1] ?? lines.length;
+
+    // Title: scan backwards from anchor, skipping noise lines
+    let title = null;
+    for (let j = anchorIdx - 1; j >= Math.max(0, anchorIdx - 6); j--) {
+      if (!SKIP_LINES.test(lines[j]) && lines[j].length > 3) {
+        title = lines[j];
+        break;
+      }
+    }
+    if (!title) {
+      console.log("[UT] scrapeContracts: could not find title before index", anchorIdx, "— skipping");
+      continue;
+    }
+
+    const contract = { title };
+
+    // Client company: first non-skip line after "Hired by X"
+    for (let j = anchorIdx + 1; j < Math.min(anchorIdx + 4, nextAnchorIdx); j++) {
+      if (!SKIP_LINES.test(lines[j]) && !/^Hired by/i.test(lines[j]) && lines[j].length > 1) {
+        contract.clientCompany = lines[j];
+        break;
+      }
+    }
+
+    // Scan forward within this contract block for dates, status, rate, budget, rating
+    for (let j = anchorIdx + 1; j < nextAnchorIdx; j++) {
+      const line = lines[j];
+
+      // Date range: "May 15 - May 22" or "May 7 - Present"
+      const dateRange = line.match(/^([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?)\s*[-–]\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?|Present|present)?$/);
+      if (dateRange && !contract.startDate) {
+        contract.startDate = dateRange[1]?.trim() || null;
+        const endRaw = dateRange[2]?.trim() || null;
+        contract.endDate = !endRaw || /present/i.test(endRaw) ? null : endRaw;
+      }
+
+      // Status
+      if (/^(Active|Ended|Paused|Suspended)$/i.test(line) && !contract.status) {
+        contract.status = line;
+      }
+
+      // Rating: "Rating is 5.0 out of 5." or standalone "5.0"
+      const ratingLine = line.match(/Rating is ([\d.]+) out of/i);
+      if (ratingLine && !contract.rating) contract.rating = ratingLine[1];
+      const standaloneRating = line.match(/^([\d]\.\d{1,2})$/);
+      if (standaloneRating && !contract.rating) contract.rating = standaloneRating[1];
+
+      // Rate: "Rate: $20.00/hr, 20 hrs weekly limit"
+      const rateLine = line.match(/Rate:\s*(\$[\d,.]+\/hr)/i);
+      if (rateLine && !contract.rate) contract.rate = rateLine[1].replace(/\s/g, "");
+      const weeklyMatch = line.match(/(\d+)\s*hrs?\s*weekly\s*limit/i);
+      if (weeklyMatch && !contract.weeklyLimit) contract.weeklyLimit = weeklyMatch[1] + " hrs/week";
+
+      // Budget: "$90.00 Budget"
+      const budgetLine = line.match(/^(\$[\d,.]+)\s+Budget$/i);
+      if (budgetLine && !contract.budget) contract.budget = budgetLine[1];
+    }
+
+    console.log("[UT] scrapeContracts: parsed →", JSON.stringify(contract));
+    contracts.push(contract);
+  }
+
+  console.log("[UT] scrapeContracts: total parsed =", contracts.length);
+
+  if (contracts.length > 0) {
+    await chrome.storage.local.set({ [THROTTLE_KEY]: Date.now() });
+    console.log("[UT] scrapeContracts: sending to background →", JSON.stringify(contracts));
+    sendToBackground("SCRAPED_CONTRACTS", { contracts });
+  } else {
+    console.warn("[UT] scrapeContracts: no contracts found — check page text preview above");
+  }
+}
+
 function detectPageAndScrape() {
   const url = window.location.href;
   console.log("[UT] Detecting page type for:", url);
@@ -3407,6 +3527,8 @@ function detectPageAndScrape() {
     scrapeProposalDetail();
   } else if (url.includes("/nx/proposals") || url.includes("/ab/proposals")) {
     scrapeProposals();
+  } else if (url.includes("/nx/wm/freelancer/contracts")) {
+    scrapeContracts();
   } else if (isFeedPage(url)) {
     scrapeFeed();
     // Also check if a job detail panel is open on the feed page

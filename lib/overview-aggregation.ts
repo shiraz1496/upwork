@@ -61,6 +61,7 @@ export type TimelineEntry = {
   proposalsSentOnDay: number; // exact count from proposals.submittedAt for this calendar day
   proposalsViewedOnDay: number; // proposals with viewedByClient=true, bucketed by submittedAt day
   proposalsInterviewedOnDay: number; // proposals in active/interviewing section
+  proposalsHiredOnDay: number;       // proposals with hiredAt on this day
   connectsBalance: number | null;
   jss: number | null;
   viewRate: number;
@@ -269,17 +270,32 @@ export function computeSnapshotTimeline(
   const isInterviewed = (section: string | null) =>
     section != null && /active|offers?|interviewing/i.test(section);
 
-  const byDay = new Map<string, { sent: number; viewed: number; interviewed: number }>();
+  const byDay = new Map<string, { sent: number; viewed: number; interviewed: number; hired: number }>();
+
+  const ensureDay = (day: string) => {
+    if (!byDay.has(day)) byDay.set(day, { sent: 0, viewed: 0, interviewed: 0, hired: 0 });
+    return byDay.get(day)!;
+  };
+
   for (const account of accounts) {
     for (const p of account.proposals) {
-      if (!p.submittedAt) continue;
-      const day = localDateKey(p.submittedAt);
-      if (day < from || day > to) continue;
-      const existing = byDay.get(day) ?? { sent: 0, viewed: 0, interviewed: 0 };
-      existing.sent += 1;
-      if (p.viewedByClient || isInterviewed(p.section)) existing.viewed += 1;
-      if (isInterviewed(p.section)) existing.interviewed += 1;
-      byDay.set(day, existing);
+      // Bucket by submittedAt for sent/viewed/interviewed
+      if (p.submittedAt) {
+        const day = localDateKey(p.submittedAt);
+        if (day >= from && day <= to) {
+          const entry = ensureDay(day);
+          entry.sent += 1;
+          if (p.viewedByClient || isInterviewed(p.section)) entry.viewed += 1;
+          if (isInterviewed(p.section)) entry.interviewed += 1;
+        }
+      }
+      // Bucket by hiredAt for hired — independent of submittedAt
+      if (p.hiredAt) {
+        const hireDay = localDateKey(p.hiredAt);
+        if (hireDay >= from && hireDay <= to) {
+          ensureDay(hireDay).hired += 1;
+        }
+      }
     }
   }
 
@@ -298,6 +314,7 @@ export function computeSnapshotTimeline(
     proposalsSentOnDay: counts.sent,
     proposalsViewedOnDay: counts.viewed,
     proposalsInterviewedOnDay: counts.interviewed,
+    proposalsHiredOnDay: counts.hired,
     connectsBalance: null,
     jss: null,
     viewRate: counts.sent > 0 ? Math.round((counts.viewed / counts.sent) * 1000) / 10 : 0,

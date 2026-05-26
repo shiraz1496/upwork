@@ -242,6 +242,14 @@ model Proposal {
   clientTotalHours      String?
   clientMemberSince     String?
   clientPaymentVerified Boolean   @default(false)
+  clientCompany         String?
+  hiredAt               DateTime?
+  contractEndedAt       DateTime?
+  contractStatus        String?
+  contractRating        Float?
+  contractBudget        String?
+  contractRate          String?
+  contractWeeklyLimit   String?
   createdAt             DateTime  @default(now())
 
   capturedByUserId   String?

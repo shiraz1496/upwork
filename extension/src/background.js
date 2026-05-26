@@ -440,6 +440,8 @@ const handleMessage = safeAsync(async (message) => {
       return handleScrapedApplySubmit(message.payload);
     case "SCRAPED_MESSAGES":
       return handleScrapedMessages(message.payload);
+    case "SCRAPED_CONTRACTS":
+      return handleScrapedContracts(message.payload);
     case "ACK_ALL_NUDGES":
       return ackAllNudges();
     case "ANALYZE_COVER_LETTER":
@@ -887,6 +889,25 @@ async function handleForceSync() {
     freelancerId: info.userId,
     ...(info.name ? { name: info.name } : {}),
   });
+}
+
+// ════════════════════════════════════════════════════
+// SCRAPED CONTRACTS (from /nx/wm/freelancer/contracts)
+// ════════════════════════════════════════════════════
+async function handleScrapedContracts(payload) {
+  const { contracts } = payload;
+  console.log("[UT BG] handleScrapedContracts: received", contracts?.length, "contracts");
+  contracts?.forEach((c, i) => console.log(`  [${i}]`, JSON.stringify(c)));
+
+  const fid = await getFreelancerId();
+  if (!fid) {
+    console.warn("[UT BG] handleScrapedContracts: no freelancerId, skipping sync");
+    return { ok: false, note: "No userId" };
+  }
+  console.log("[UT BG] handleScrapedContracts: syncing to backend, freelancerId:", fid);
+  const result = await syncToBackend("/api/sync/contracts", { freelancerId: fid, contracts });
+  console.log("[UT BG] handleScrapedContracts: backend result:", JSON.stringify(result));
+  return result;
 }
 
 fetchRequiredPages();
