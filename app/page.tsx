@@ -238,6 +238,9 @@ const ProposalDrawer = React.memo(function ProposalDrawer({ proposal, onClose }:
               <DrawerField label="Profile Used" value={proposal.profileUsed} />
               <DrawerField label="Account" value={proposal.account?.name ?? null} />
               <DrawerField label="Submitted" value={proposal.submittedAt ? fmtDateTime(proposal.submittedAt) : fmtDateTime(proposal.createdAt)} />
+              {proposal.hiredAt && (
+                <DrawerField label="Hired" value={fmtDateTime(proposal.hiredAt)} />
+              )}
               <DrawerField label="Submitted By" value={proposal.submittedBy?.name ?? null} />
               <DrawerField label="Captured By" value={proposal.capturedBy?.name ?? null} />
             </dl>
@@ -593,19 +596,26 @@ export default function Dashboard() {
   const sortedProposalSections = useMemo(() => {
     const sections = new Map<string, ProposalData[]>();
     for (const p of allProposals) {
-      const sec = p.section || "Other";
+      // Hired proposals are extracted into a single "Hired" group, regardless
+      // of the section Upwork originally placed them in.
+      const sec = p.hiredAt ? "Hired" : (p.section || "Other");
       if (!sections.has(sec)) sections.set(sec, []);
       sections.get(sec)!.push(p);
     }
-    // Sort each section by submittedAt, direction controlled by proposalsSortAsc.
-    for (const [, props] of sections) {
+    // Sort each section by its date column, direction controlled by proposalsSortAsc.
+    // Hired uses hiredAt, others use submittedAt (fallback createdAt).
+    for (const [sec, props] of sections) {
       props.sort((a, b) => {
-        const ta = new Date(a.submittedAt || a.createdAt).getTime();
-        const tb = new Date(b.submittedAt || b.createdAt).getTime();
+        const ta = sec === "Hired"
+          ? (a.hiredAt ? new Date(a.hiredAt).getTime() : 0)
+          : new Date(a.submittedAt || a.createdAt).getTime();
+        const tb = sec === "Hired"
+          ? (b.hiredAt ? new Date(b.hiredAt).getTime() : 0)
+          : new Date(b.submittedAt || b.createdAt).getTime();
         return proposalsSortAsc ? ta - tb : tb - ta;
       });
     }
-    const order = ["Offers", "Invites from clients", "Active proposals", "Submitted proposals", "Other", "Unknown"];
+    const order = ["Hired", "Offers", "Invites from clients", "Active proposals", "Submitted proposals", "Other", "Unknown"];
     return Array.from(sections.entries())
       .filter(([sec]) => !sec.toLowerCase().includes("archived"))
       .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
@@ -1208,6 +1218,95 @@ export default function Dashboard() {
                           <span className="text-xs text-gray-400">{props.length} {unit}{props.length !== 1 ? "s" : ""}</span>
                         </div>
                         <div className="border border-gray-200 rounded-xl overflow-x-auto scrollbar-hide shadow-sm">
+                          {section === "Hired" ? (
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="border-b border-gray-200 bg-gray-50">
+                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Job Title</th>
+                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Client</th>
+                                  <th className="text-center px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Status</th>
+                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Rating</th>
+                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Pay</th>
+                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Account</th>
+                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Captured By</th>
+                                  <th className="text-left px-4 py-3 text-xs tracking-wide">
+                                    <button
+                                      onClick={() => setProposalsSortAsc(v => !v)}
+                                      className="flex items-center gap-1 uppercase font-medium text-gray-500 hover:text-gray-800 transition-colors"
+                                    >
+                                      Hired At
+                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`w-3 h-3 transition-transform ${proposalsSortAsc ? "rotate-180" : ""}`}>
+                                        <polyline points="6 9 12 15 18 9" />
+                                      </svg>
+                                    </button>
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {props.map((p) => {
+                                  const statusVariant: "green" | "gray" | "amber" | "rose" =
+                                    p.contractStatus?.toLowerCase() === "active" ? "green"
+                                      : p.contractStatus?.toLowerCase() === "paused" ? "amber"
+                                      : p.contractStatus?.toLowerCase() === "suspended" ? "rose"
+                                      : "gray";
+                                  return (
+                                    <tr
+                                      key={p.id}
+                                      onClick={() => setSelectedProposal(p)}
+                                      className="border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors align-top"
+                                    >
+                                      <td className="px-4 py-3 max-w-sm">
+                                        <span className="text-teal-600 font-medium block truncate">{p.jobTitle || "Untitled"}</span>
+                                      </td>
+                                      <td className="px-4 py-3 text-xs">
+                                        <div className="flex flex-col gap-0.5">
+                                          {p.clientCompany && <span className="text-gray-700 font-medium">{p.clientCompany}</span>}
+                                          {p.clientName && <span className="text-gray-500">{p.clientName}</span>}
+                                          {p.clientCountry && <span className="text-gray-400 text-[11px]">{p.clientCountry}</span>}
+                                          {!p.clientCompany && !p.clientName && <span className="text-gray-300">—</span>}
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-3 text-center">
+                                        {p.contractStatus ? <Badge text={p.contractStatus} variant={statusVariant} /> : <span className="text-gray-300 text-xs">—</span>}
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        {p.contractRating != null ? (
+                                          <div className="flex items-center gap-1 text-xs">
+                                            <StarRating rating={p.contractRating} />
+                                            <span className="text-gray-700 font-medium">{p.contractRating.toFixed(1)}</span>
+                                          </div>
+                                        ) : (
+                                          <span className="text-gray-300 text-xs">—</span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-3 text-xs">
+                                        {p.contractBudget ? (
+                                          <span className="text-amber-600 font-medium">{p.contractBudget} budget</span>
+                                        ) : p.contractRate || p.contractWeeklyLimit ? (
+                                          <div className="flex flex-col gap-0.5">
+                                            {p.contractRate && <span className="text-amber-600 font-medium">{p.contractRate}</span>}
+                                            {p.contractWeeklyLimit && <span className="text-gray-500">{p.contractWeeklyLimit}</span>}
+                                          </div>
+                                        ) : (
+                                          <span className="text-gray-300">—</span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-3 text-gray-500 text-xs">{p.account?.name || <span className="italic text-gray-400">—</span>}</td>
+                                      <td className="px-4 py-3 text-gray-500 text-xs">{p.capturedBy?.name || <span className="italic text-gray-400">—</span>}</td>
+                                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                                        <div className="flex flex-col gap-0.5">
+                                          {p.hiredAt && <span className="text-green-600 font-medium">{fmtDateTime(p.hiredAt)}</span>}
+                                          <span className="text-gray-400">
+                                            {p.contractEndedAt ? `Ended ${fmtDateTime(p.contractEndedAt)}` : "Present"}
+                                          </span>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          ) : (
                           <table className="w-full text-sm">
                               <thead>
                                 <tr className="border-b border-gray-200 bg-gray-50">
@@ -1225,7 +1324,7 @@ export default function Dashboard() {
                                       onClick={() => setProposalsSortAsc(v => !v)}
                                       className="flex items-center gap-1 uppercase font-medium text-gray-500 hover:text-gray-800 transition-colors"
                                     >
-                                      Submitted
+                                      {section === "Hired" ? "Hired At" : "Submitted"}
                                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`w-3 h-3 transition-transform ${proposalsSortAsc ? "rotate-180" : ""}`}>
                                         <polyline points="6 9 12 15 18 9" />
                                       </svg>
@@ -1369,13 +1468,25 @@ export default function Dashboard() {
                                         )}
                                       </div>
                                     </td>
-                                    <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
-                                      {p.submittedAt ? fmtDateTime(p.submittedAt) : fmtDateTime(p.createdAt)}
+                                    <td className="px-4 py-3 text-xs whitespace-nowrap">
+                                      {p.hiredAt ? (
+                                        <div className="flex flex-col gap-0.5">
+                                          <span className="text-green-600 font-medium">Hired {fmtDateTime(p.hiredAt)}</span>
+                                          {p.submittedAt && (
+                                            <span className="text-gray-400">Submitted {fmtDateTime(p.submittedAt)}</span>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <span className="text-gray-400">
+                                          {p.submittedAt ? fmtDateTime(p.submittedAt) : fmtDateTime(p.createdAt)}
+                                        </span>
+                                      )}
                                     </td>
                                   </tr>
                                 ))}
                               </tbody>
                             </table>
+                          )}
                         </div>
                       </div>
                     );

@@ -3322,7 +3322,7 @@ async function scrapeContracts() {
   console.log("[UT] scrapeContracts: page text preview =", bodyText.slice(0, 1000));
 
   const lines = bodyText.split("\n").map((l) => l.trim()).filter(Boolean);
-  const SKIP_LINES = /^(Propose new contract|See timesheet|More options|Download CSV|Filters|Sort by|All contracts|Skip to content|Upwork home|Find work|Deliver work|Manage finances|Messages|Search category|Jobs|Account Settings|\d+ total|\d+ results available|Start date|Descending|Ascending)$/i;
+  const SKIP_LINES = /^(Propose new contract|See contract|See timesheet|More options|Download CSV|Filters|Sort by|All contracts|Skip to content|Upwork home|Find work|Deliver work|Manage finances|Messages|Search category|Jobs|Account Settings|\d+ total|\d+ results available|Start date|Descending|Ascending|Staffed by\s+.+)$/i;
 
   // Find all "Hired by X" anchor indices
   const hiredByIndices = [];
