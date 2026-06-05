@@ -107,6 +107,25 @@ async function getAuthToken() {
   return authToken || null;
 }
 
+async function getAccountKeywords() {
+  const token = await getAuthToken();
+  if (!token) return [];
+  const freelancerId = await getCurrentAccountId();
+  if (!freelancerId) return [];
+  const backendUrl = await getBackendUrl();
+  try {
+    const res = await fetch(
+      `${backendUrl}/api/me/keywords?freelancerId=${encodeURIComponent(freelancerId)}`,
+      { headers: backendHeaders(token, backendUrl) }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data?.keywords) ? data.keywords : [];
+  } catch {
+    return [];
+  }
+}
+
 async function syncToBackend(endpoint, payload) {
   const backendUrl = await getBackendUrl();
   const token = await getAuthToken();
@@ -453,6 +472,10 @@ const handleMessage = safeAsync(async (message) => {
     }
     case "GET_FREELANCER_PROFILE":
       return handleGetFreelancerProfile();
+    case "GET_ACCOUNT_KEYWORDS": {
+      const keywords = await getAccountKeywords();
+      return { keywords };
+    }
     case "GET_STATUS": {
       const data = await chrome.storage.local.get([
         "lastSync", "lastAccountInfo", "syncCount", "backendUrl",

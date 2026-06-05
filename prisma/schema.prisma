@@ -45,6 +45,16 @@ model TeamMember {
   nudgesCreated     Nudge[] @relation("NudgeCreatedBy")
 }
 
+model AccountKeyword {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+}
+
 model ExtensionToken {
   id         String     @id @default(cuid())
   memberId   String
@@ -109,6 +119,7 @@ model Account {
   pageVisits      PageVisit[]
   visitLogs       VisitLog[]
   profile         FreelancerProfile?
+  keywords        AccountKeyword[]
 }
 
 model FreelancerProfile {
