@@ -204,7 +204,14 @@ async function evaluateAndShowCriteria(job, isRetry = false, generation = _jobEv
         "— job:", jobSkills, "freelancer:", freelancerSkills);
     }
 
-    const results = criteria.map((c) => ({ ...c, status: checkCriterion(c, job) }));
+    const rawResults = criteria.map((c) => ({ ...c, status: checkCriterion(c, job) }));
+    // If the card definitively evaluated a criterion (pass/fail) but the detail page
+    // can't see the data (unknown), carry the card's result forward so we don't flip
+    // a card-level fail into an "unknown" that gets ignored in the detail panel.
+    const cardCache = _cardVerdictByUrl.get((job.url || "").split("?")[0]) || {};
+    const results = rawResults.map((r) =>
+      r.status === "unknown" && cardCache[r.key] ? { ...r, status: cardCache[r.key] } : r
+    );
     injectCriteriaPanel(job, results);
 
     // If required criteria are still unknown and this isn't already a retry,
@@ -473,6 +480,9 @@ const CARD_EVALUABLE_FIELDS = new Set([
 
 let _jobEvalGeneration = 0; // increments every time a new job is opened; stale evals check against it
 let _cardCriteriaCache = null;
+// Maps normalized job URL → { key → "pass"|"fail" } for criteria evaluated on feed cards.
+// Used to carry card-level fails into the detail panel when the page doesn't expose the data.
+const _cardVerdictByUrl = new Map();
 let _cardCriteriaTs = 0;
 let _cardCriteriaHash = "";
 
@@ -815,6 +825,16 @@ async function injectFeedCardVerdicts() {
     if (verdict) {
       renderCardVerdictBadge(card, verdict);
       injected++;
+      // Cache definitive (non-unknown) results so the detail panel can inherit them
+      const jobLink = card.querySelector('a[href*="/jobs/~"]');
+      if (jobLink) {
+        const jobUrl = jobLink.href.split("?")[0];
+        const definitive = {};
+        for (const r of verdict.results) {
+          if (r.status !== "unknown") definitive[r.key] = r.status;
+        }
+        if (Object.keys(definitive).length) _cardVerdictByUrl.set(jobUrl, definitive);
+      }
     }
   }
   console.log("[UT] Feed card verdicts done: injected", injected, "of", feedCards.length, "cards");
@@ -1444,11 +1464,11 @@ async function scrapeJobData() {
     const openJobsMatch = block.match(/(\d+)\s*open\s*jobs?/i);
     if (openJobsMatch) job.clientOpenJobs = parseInt(openJobsMatch[1]);
 
-    // Hires & active — "5 hires, 1 active"
-    const hiresMatch = block.match(/(\d+)\s*hires?\s*,?\s*(\d+)\s*active/i);
+    // Hires & active — "5 hires, 1 active" or just "5 hires"
+    const hiresMatch = block.match(/(\d+)\s*hires?(?:\s*,\s*(\d+)\s*active)?/i);
     if (hiresMatch) {
       job.clientHires = parseInt(hiresMatch[1]);
-      job.clientActiveHires = parseInt(hiresMatch[2]);
+      job.clientActiveHires = hiresMatch[2] !== undefined ? parseInt(hiresMatch[2]) : 0;
     }
 
     // Industry — e.g. "Tech & IT", "Sales & Marketing" — a line with "&" that isn't money
@@ -1462,6 +1482,13 @@ async function scrapeJobData() {
     // Member since — "Member since Aug 23, 2025"
     const memberMatch = block.match(/member\s*since\s*(.+?)(?:\n|$)/i);
     if (memberMatch) job.clientMemberSince = memberMatch[1].trim();
+
+    // Upwork omits zero-value fields entirely rather than showing "$0 spent" or "0 hires".
+    // Default absent numeric fields to 0 so criteria evaluate as fail rather than unknown.
+    if (job.clientSpent === undefined) job.clientSpent = "$0";
+    if (job.clientHires === undefined) job.clientHires = 0;
+    if (job.clientActiveHires === undefined) job.clientActiveHires = 0;
+    if (job.clientReviews === undefined) job.clientReviews = 0;
   }
 
   // ── Activity on this job — Proposals count + Interviewing count ──
