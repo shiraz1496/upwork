@@ -1785,7 +1785,12 @@ async function scrapeProposals() {
 
   console.log("[UT] Scraped", allProposals.length, "total proposals across", pageNum, "pages");
   if (allProposals.length > 0) {
-    sendToBackground("SCRAPED_PROPOSALS", { proposals: allProposals, capturedAt: new Date().toISOString() });
+    const pageFreelancerId = extractUserId();
+    sendToBackground("SCRAPED_PROPOSALS", {
+      proposals: allProposals,
+      capturedAt: new Date().toISOString(),
+      ...(pageFreelancerId ? { freelancerId: pageFreelancerId } : {}),
+    });
   }
 }
 
@@ -2172,6 +2177,8 @@ async function scrapeProposalDetail() {
   console.log("[UT] Proposal detail scraped:", JSON.stringify(proposal).slice(0, 500));
 
   if (proposal.title || proposal.coverLetter || proposal.clientNote) {
+    const pageFreelancerId = extractUserId();
+    if (pageFreelancerId) proposal.freelancerId = pageFreelancerId;
     sendToBackground("SCRAPED_PROPOSAL_DETAIL", proposal);
   }
 }
@@ -2226,6 +2233,8 @@ function watchApplyPage() {
           return;
         }
         console.log("[UT] Submission confirmed by URL change; sending.");
+        const pageFreelancerId = extractUserId();
+        if (pageFreelancerId) pending.freelancerId = pageFreelancerId;
         sendToBackground("SCRAPED_APPLY_SUBMIT", pending);
         return;
       }
@@ -3430,7 +3439,8 @@ async function scrapeContracts() {
   if (contracts.length > 0) {
     await chrome.storage.local.set({ [THROTTLE_KEY]: Date.now() });
     console.log("[UT] scrapeContracts: sending to background →", JSON.stringify(contracts));
-    sendToBackground("SCRAPED_CONTRACTS", { contracts });
+    const pageFreelancerId = extractUserId();
+    sendToBackground("SCRAPED_CONTRACTS", { contracts, ...(pageFreelancerId ? { freelancerId: pageFreelancerId } : {}) });
   } else {
     console.warn("[UT] scrapeContracts: no contracts found — check page text preview above");
   }
