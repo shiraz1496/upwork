@@ -7,6 +7,7 @@ import { CoveragePagesView } from "@/components/admin/CoveragePagesView";
 import { CoverageLeaderboardView } from "@/components/admin/CoverageLeaderboardView";
 import { BiddingCriteriaView } from "@/components/admin/BiddingCriteriaView";
 import { AccountManagementView } from "@/components/admin/AccountManagementView";
+import { DuplicateProposalsView } from "@/components/admin/DuplicateProposalsView";
 import { OverviewPanel } from "@/components/OverviewPanel";
 import { FreelancerProfileCard } from "@/components/FreelancerProfileCard";
 import type {
@@ -102,8 +103,8 @@ function StatCard({ label, value, sub, color, delta }: {
         <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">{label}</span>
         {delta != null && (
           <span className={`inline-flex items-center gap-0.5 text-[11px] font-medium px-1.5 py-0.5 rounded ${up ? "bg-green-50 text-green-700" :
-              down ? "bg-rose-50 text-rose-700" :
-                "bg-gray-50 text-gray-500"
+            down ? "bg-rose-50 text-rose-700" :
+              "bg-gray-50 text-gray-500"
             }`}>
             {up && <IconArrowUp />}
             {down && <IconArrowDown />}
@@ -417,7 +418,8 @@ type Tab =
   | "coverage-pages"
   | "leaderboard"
   | "bidding-criteria"
-  | "accounts";
+  | "accounts"
+  | "duplicate-proposals";
 
 // Tooltip style constants were moved to OverviewPanel
 
@@ -778,6 +780,7 @@ export default function Dashboard() {
     { id: "leaderboard", label: "Leaderboard", icon: <IconTrophy /> },
     { id: "coverage-pages", label: "Coverage Pages", icon: <IconCompass /> },
     { id: "bidding-criteria", label: "Bid Criteria", icon: <IconClipboard /> },
+    ...(process.env.NEXT_PUBLIC_SHOW_DUPLICATES === "true" ? [{ id: "duplicate-proposals" as Tab, label: "Duplicates", icon: <IconFile /> }] : []),
   ];
 
   const activeTabLabel =
@@ -877,8 +880,8 @@ export default function Dashboard() {
 
   return (
     <div className="h-screen bg-gray-50 text-gray-900 flex overflow-x-hidden">
-        {/* ── Sidebar ─────────────────────────────────────────────────────── */}
-        <aside className={`fixed lg:sticky top-0 left-0 h-screen w-64 lg:w-60 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 ${selectedProposal ? "z-20" : "z-50"} overflow-x-hidden`}>
+      {/* ── Sidebar ─────────────────────────────────────────────────────── */}
+      <aside className={`fixed lg:sticky top-0 left-0 h-screen w-64 lg:w-60 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 ${selectedProposal ? "z-20" : "z-50"} overflow-x-hidden`}>
         <div className="h-14 px-5 flex items-center border-b border-gray-200">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-teal-500 text-white flex items-center justify-center text-xs font-bold">UT</div>
@@ -1004,8 +1007,8 @@ export default function Dashboard() {
         </div>
       </aside>
 
-        {/* ── Main ────────────────────────────────────────────────────────── */}
-        <main className="flex-1 min-w-0 flex flex-col">
+      {/* ── Main ────────────────────────────────────────────────────────── */}
+      <main className="flex-1 min-w-0 flex flex-col">
         {/* Top bar */}
         <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-gray-200 h-14 flex items-center justify-between px-4 lg:px-6">
           <div className="flex items-center gap-3">
@@ -1081,7 +1084,7 @@ export default function Dashboard() {
                 </h2>
                 <div className="flex items-center gap-2 flex-wrap">
                   <div className="relative">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
                     <input
                       type="text"
                       value={proposalSearch}
@@ -1091,7 +1094,7 @@ export default function Dashboard() {
                     />
                     {proposalSearch && (
                       <button onClick={() => setProposalSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                       </button>
                     )}
                   </div>
@@ -1145,8 +1148,8 @@ export default function Dashboard() {
                               setBulkNudgeState("ok");
                               setBulkNudgeMessage(
                                 `Nudged ${res.created} proposal${res.created === 1 ? "" : "s"}` +
-                                  (bidderCount > 0 ? ` across ${bidderCount} bidder${bidderCount === 1 ? "" : "s"}` : "") +
-                                  (res.deduped ? ` (${res.deduped} skipped — recently nudged)` : ""),
+                                (bidderCount > 0 ? ` across ${bidderCount} bidder${bidderCount === 1 ? "" : "s"}` : "") +
+                                (res.deduped ? ` (${res.deduped} skipped — recently nudged)` : ""),
                               );
                               setTimeout(() => setBulkNudgeState("idle"), 4000);
                             })
@@ -1156,23 +1159,22 @@ export default function Dashboard() {
                             });
                         }}
                         disabled={bulkNudgeState === "loading"}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
-                          bulkNudgeState === "ok"
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${bulkNudgeState === "ok"
                             ? "bg-green-50 border-green-200 text-green-700"
                             : bulkNudgeState === "error"
-                            ? "bg-rose-50 border-rose-200 text-rose-700"
-                            : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
-                        }`}
+                              ? "bg-rose-50 border-rose-200 text-rose-700"
+                              : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
+                          }`}
                         title={bulkNudgeMessage ?? `Nudge ${unscannedIds.length} unscanned proposal${unscannedIds.length === 1 ? "" : "s"}`}
                       >
-                        📌 
+                        📌
                         {bulkNudgeState === "loading"
                           ? " Nudging…"
                           : bulkNudgeState === "ok"
-                          ? bulkNudgeMessage || "  Nudged ✓"
-                          : bulkNudgeState === "error"
-                          ? bulkNudgeMessage || " Failed"
-                          : ` Nudge all (${unscannedIds.length})`}
+                            ? bulkNudgeMessage || "  Nudged ✓"
+                            : bulkNudgeState === "error"
+                              ? bulkNudgeMessage || " Failed"
+                              : ` Nudge all (${unscannedIds.length})`}
                       </button>
                     );
                   })()}
@@ -1247,8 +1249,8 @@ export default function Dashboard() {
                                   const statusVariant: "green" | "gray" | "amber" | "rose" =
                                     p.contractStatus?.toLowerCase() === "active" ? "green"
                                       : p.contractStatus?.toLowerCase() === "paused" ? "amber"
-                                      : p.contractStatus?.toLowerCase() === "suspended" ? "rose"
-                                      : "gray";
+                                        : p.contractStatus?.toLowerCase() === "suspended" ? "rose"
+                                          : "gray";
                                   return (
                                     <tr
                                       key={p.id}
@@ -1307,7 +1309,7 @@ export default function Dashboard() {
                               </tbody>
                             </table>
                           ) : (
-                          <table className="w-full text-sm">
+                            <table className="w-full text-sm">
                               <thead>
                                 <tr className="border-b border-gray-200 bg-gray-50">
                                   <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Job Title</th>
@@ -1448,22 +1450,21 @@ export default function Dashboard() {
                                                   setNudgeState((s) => ({ ...s, [id]: "error" }));
                                                 });
                                             }}
-                                            className={`text-[10px] px-2 py-0.5 rounded border font-medium transition-colors ${
-                                              nudgeState[p.id] === "ok"
+                                            className={`text-[10px] px-2 py-0.5 rounded border font-medium transition-colors ${nudgeState[p.id] === "ok"
                                                 ? "bg-green-50 border-green-200 text-green-700"
                                                 : nudgeState[p.id] === "error"
-                                                ? "bg-rose-50 border-rose-200 text-rose-700"
-                                                : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
-                                            }`}
+                                                  ? "bg-rose-50 border-rose-200 text-rose-700"
+                                                  : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
+                                              }`}
                                             disabled={nudgeState[p.id] === "loading" || nudgeState[p.id] === "ok"}
                                           >
                                             {nudgeState[p.id] === "loading"
                                               ? "Nudging…"
                                               : nudgeState[p.id] === "ok"
-                                              ? "Nudged ✓"
-                                              : nudgeState[p.id] === "error"
-                                              ? "Failed"
-                                              : "Nudge"}
+                                                ? "Nudged ✓"
+                                                : nudgeState[p.id] === "error"
+                                                  ? "Failed"
+                                                  : "Nudge"}
                                           </button>
                                         )}
                                       </div>
@@ -1660,8 +1661,8 @@ export default function Dashboard() {
                             <div
                               key={a.id}
                               className={`border rounded-xl p-4 flex items-start gap-4 transition-colors ${a.read ? "bg-gray-50 border-gray-200 opacity-60" :
-                                  isUnreplied ? "bg-white border-rose-200 shadow-sm" :
-                                    "bg-white border-blue-200 shadow-sm"
+                                isUnreplied ? "bg-white border-rose-200 shadow-sm" :
+                                  "bg-white border-blue-200 shadow-sm"
                                 }`}
                             >
                               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${isUnreplied ? "bg-rose-50 border border-rose-200 text-rose-600" : "bg-blue-50 border border-blue-200 text-blue-600"
@@ -1739,6 +1740,7 @@ export default function Dashboard() {
           {activeTab === "leaderboard" && <CoverageLeaderboardView />}
           {/* ── Bid Criteria Tab ─────────────────────────────────────────────── */}
           {activeTab === "bidding-criteria" && <BiddingCriteriaView />}
+          {activeTab === "duplicate-proposals" && <DuplicateProposalsView />}
 
           {/* ── Footer ───────────────────────────────────────────────────────── */}
           <div className="text-center text-xs text-gray-400 border-t border-gray-100 mt-4 py-4">
@@ -1747,62 +1749,62 @@ export default function Dashboard() {
         </div>
       </main>
 
-    {/* ── Drawers ──────────────────────────────────────────────────────── */}
-    {selectedProposal && <ProposalDrawer proposal={selectedProposal} onClose={closeDrawer} />}
+      {/* ── Drawers ──────────────────────────────────────────────────────── */}
+      {selectedProposal && <ProposalDrawer proposal={selectedProposal} onClose={closeDrawer} />}
 
-    {/* ── Mobile Sidebar Overlay ────────────────────────────────────────── */}
-    {sidebarOpen && (
-      <div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
-    )}
+      {/* ── Mobile Sidebar Overlay ────────────────────────────────────────── */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
 
-    {/* ── Disable account modal ────────────────────────────────────────── */}
-    {disableModal && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setDisableModal(null)}>
-        <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
-          <h2 className="text-base font-semibold text-gray-900 mb-1">
-            {disableModal.current ? "Re-enable account" : "Disable account"}
-          </h2>
-          <p className="text-sm text-gray-500 mb-4">
-            {disableModal.current
-              ? `Bidders will be allowed to bid on ${disableModal.accountName} again.`
-              : `Bidders will see a warning banner on all Upwork pages for ${disableModal.accountName}.`}
-          </p>
-          {!disableModal.current && (
-            <div className="mb-4">
-              <label className="text-xs font-medium text-gray-600 block mb-1">Reason <span className="text-gray-400 font-normal">(optional)</span></label>
-              <input
-                type="text"
-                placeholder="e.g. Client on hold, under review…"
-                value={disableReason}
-                onChange={(e) => setDisableReason(e.target.value)}
-                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-400"
-                maxLength={300}
-              />
+      {/* ── Disable account modal ────────────────────────────────────────── */}
+      {disableModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setDisableModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-base font-semibold text-gray-900 mb-1">
+              {disableModal.current ? "Re-enable account" : "Disable account"}
+            </h2>
+            <p className="text-sm text-gray-500 mb-4">
+              {disableModal.current
+                ? `Bidders will be allowed to bid on ${disableModal.accountName} again.`
+                : `Bidders will see a warning banner on all Upwork pages for ${disableModal.accountName}.`}
+            </p>
+            {!disableModal.current && (
+              <div className="mb-4">
+                <label className="text-xs font-medium text-gray-600 block mb-1">Reason <span className="text-gray-400 font-normal">(optional)</span></label>
+                <input
+                  type="text"
+                  placeholder="e.g. Client on hold, under review…"
+                  value={disableReason}
+                  onChange={(e) => setDisableReason(e.target.value)}
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-400"
+                  maxLength={300}
+                />
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button onClick={() => setDisableModal(null)} className="flex-1 text-sm py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button
+                onClick={handleToggleDisabled}
+                disabled={disableSaving}
+                className={`flex-1 text-sm py-2 rounded-lg font-medium text-white transition-colors ${disableModal.current ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"} disabled:opacity-50`}
+              >
+                {disableSaving ? "Saving…" : disableModal.current ? "Re-enable" : "Disable"}
+              </button>
             </div>
-          )}
-          <div className="flex gap-2">
-            <button onClick={() => setDisableModal(null)} className="flex-1 text-sm py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
-              Cancel
-            </button>
-            <button
-              onClick={handleToggleDisabled}
-              disabled={disableSaving}
-              className={`flex-1 text-sm py-2 rounded-lg font-medium text-white transition-colors ${disableModal.current ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"} disabled:opacity-50`}
-            >
-              {disableSaving ? "Saving…" : disableModal.current ? "Re-enable" : "Disable"}
-            </button>
           </div>
         </div>
-      </div>
-    )}
+      )}
 
-    {/* ── ChatGPT copy toast ────────────────────────────────────────────── */}
-    {gptCopied && (
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2.5 bg-gray-900 text-white text-sm px-4 py-3 rounded-xl shadow-lg">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-green-400 shrink-0"><polyline points="20 6 9 17 4 12" /></svg>
-        Data copied — paste it in ChatGPT with <kbd className="ml-1 px-1.5 py-0.5 bg-gray-700 rounded text-xs font-mono">⌘V</kbd>
-      </div>
-    )}
-  </div>
-);
+      {/* ── ChatGPT copy toast ────────────────────────────────────────────── */}
+      {gptCopied && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2.5 bg-gray-900 text-white text-sm px-4 py-3 rounded-xl shadow-lg">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-green-400 shrink-0"><polyline points="20 6 9 17 4 12" /></svg>
+          Data copied — paste it in ChatGPT with <kbd className="ml-1 px-1.5 py-0.5 bg-gray-700 rounded text-xs font-mono">⌘V</kbd>
+        </div>
+      )}
+    </div>
+  );
 }

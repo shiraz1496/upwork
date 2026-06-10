@@ -635,20 +635,20 @@ async function handleScrapedFeed(payload) {
 // SCRAPED PROPOSALS
 // ════════════════════════════════════════════════════
 async function handleScrapedProposals(payload) {
-  const fid = await getFreelancerId();
+  const fid = payload.freelancerId || await getCurrentAccountId();
   if (!fid) return { ok: false, note: "No userId" };
   return syncToBackend("/api/sync/proposals", { freelancerId: fid, ...payload });
 }
 
 async function handleScrapedProposalDetail(payload) {
-  const fid = await getFreelancerId();
+  const fid = payload.freelancerId || await getCurrentAccountId();
   if (!fid) return { ok: false, note: "No userId" };
   console.log("[UT BG] Proposal detail:", payload.title, "viewed:", payload.viewedByClient);
   return syncToBackend("/api/sync/proposal-detail", { freelancerId: fid, ...payload });
 }
 
 async function handleScrapedApplySubmit(payload) {
-  const fid = await getFreelancerId();
+  const fid = payload.freelancerId || await getCurrentAccountId();
   if (!fid) return { ok: false, note: "No userId" };
   console.log("[UT BG] Apply submit:", payload.title, "cover len:", payload.coverLetter?.length);
   return syncToBackend("/api/sync/proposal-detail", { freelancerId: fid, ...payload });
@@ -852,7 +852,7 @@ async function handleScrapedContracts(payload) {
   console.log("[UT BG] handleScrapedContracts: received", contracts?.length, "contracts");
   contracts?.forEach((c, i) => console.log(`  [${i}]`, JSON.stringify(c)));
 
-  const fid = await getFreelancerId();
+  const fid = payload.freelancerId || await getCurrentAccountId();
   if (!fid) {
     console.warn("[UT BG] handleScrapedContracts: no freelancerId, skipping sync");
     return { ok: false, note: "No userId" };
