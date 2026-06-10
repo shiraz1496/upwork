@@ -34,8 +34,12 @@ function isBadTitle(title: string): boolean {
   if (/^your proposal may still appear/.test(lower)) return true;
   // Pagination / UI chrome
   if (/^current page \d/.test(lower)) return true;
+  // Upwork "Freelancer Plus" upsell banner
+  if (/freelancer plus/.test(lower)) return true;
   for (const bad of BAD_TITLES) {
-    if (lower === bad || lower.includes(bad)) return true;
+    if (lower === bad) return true;
+    // Only substring-match multi-word phrases; single/two-word entries must match exactly
+    if (bad.split(" ").length >= 3 && lower.includes(bad)) return true;
   }
   return false;
 }
