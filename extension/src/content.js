@@ -3197,6 +3197,9 @@ async function saveApplyToTrackerInline(btn, status) {
     return;
   }
 
+  const pageFreelancerId = extractUserId();
+  if (pageFreelancerId) pending.freelancerId = pageFreelancerId;
+
   manuallySavedApplyUrl = pending.detailUrl;
   btn.disabled = true;
   btn.style.opacity = "0.6";
