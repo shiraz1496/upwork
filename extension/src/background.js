@@ -635,23 +635,34 @@ async function handleScrapedFeed(payload) {
 // SCRAPED PROPOSALS
 // ════════════════════════════════════════════════════
 async function handleScrapedProposals(payload) {
-  const fid = payload.freelancerId || await getCurrentAccountId();
-  if (!fid) return { ok: false, note: "No userId" };
-  return syncToBackend("/api/sync/proposals", { freelancerId: fid, ...payload });
+  // Fail closed: only trust the page-derived freelancerId. Falling back to
+  // detectedAccountId/canonicalUserId is racy — after a logout+login on the
+  // same browser, those values can still hold the previous account until
+  // identifyUser() finishes on the new page, causing the new account's
+  // proposals to be silently filed under the old one.
+  if (!payload.freelancerId) {
+    console.warn("[UT BG] Dropping proposals scrape: page-derived freelancerId missing");
+    return { ok: false, note: "missing freelancerId — risk of misattribution" };
+  }
+  return syncToBackend("/api/sync/proposals", payload);
 }
 
 async function handleScrapedProposalDetail(payload) {
-  const fid = payload.freelancerId || await getCurrentAccountId();
-  if (!fid) return { ok: false, note: "No userId" };
+  if (!payload.freelancerId) {
+    console.warn("[UT BG] Dropping proposal-detail scrape: page-derived freelancerId missing");
+    return { ok: false, note: "missing freelancerId — risk of misattribution" };
+  }
   console.log("[UT BG] Proposal detail:", payload.title, "viewed:", payload.viewedByClient);
-  return syncToBackend("/api/sync/proposal-detail", { freelancerId: fid, ...payload });
+  return syncToBackend("/api/sync/proposal-detail", payload);
 }
 
 async function handleScrapedApplySubmit(payload) {
-  const fid = payload.freelancerId || await getCurrentAccountId();
-  if (!fid) return { ok: false, note: "No userId" };
+  if (!payload.freelancerId) {
+    console.warn("[UT BG] Dropping apply-submit scrape: page-derived freelancerId missing");
+    return { ok: false, note: "missing freelancerId — risk of misattribution" };
+  }
   console.log("[UT BG] Apply submit:", payload.title, "cover len:", payload.coverLetter?.length);
-  return syncToBackend("/api/sync/proposal-detail", { freelancerId: fid, ...payload });
+  return syncToBackend("/api/sync/proposal-detail", payload);
 }
 
 // ════════════════════════════════════════════════════
@@ -852,13 +863,12 @@ async function handleScrapedContracts(payload) {
   console.log("[UT BG] handleScrapedContracts: received", contracts?.length, "contracts");
   contracts?.forEach((c, i) => console.log(`  [${i}]`, JSON.stringify(c)));
 
-  const fid = payload.freelancerId || await getCurrentAccountId();
-  if (!fid) {
-    console.warn("[UT BG] handleScrapedContracts: no freelancerId, skipping sync");
-    return { ok: false, note: "No userId" };
+  if (!payload.freelancerId) {
+    console.warn("[UT BG] Dropping contracts scrape: page-derived freelancerId missing — risk of misattribution");
+    return { ok: false, note: "missing freelancerId — risk of misattribution" };
   }
-  console.log("[UT BG] handleScrapedContracts: syncing to backend, freelancerId:", fid);
-  const result = await syncToBackend("/api/sync/contracts", { freelancerId: fid, contracts });
+  console.log("[UT BG] handleScrapedContracts: syncing to backend, freelancerId:", payload.freelancerId);
+  const result = await syncToBackend("/api/sync/contracts", { freelancerId: payload.freelancerId, contracts });
   console.log("[UT BG] handleScrapedContracts: backend result:", JSON.stringify(result));
   return result;
 }

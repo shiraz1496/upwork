@@ -487,6 +487,7 @@ export default function Dashboard() {
     setCoverageAlertExpanded(false);
   }
   const [proposalSearch, setProposalSearch] = useState("");
+  const [proposalDateFilter, setProposalDateFilter] = useState(""); // YYYY-MM-DD, "" = all dates
 
   // Lock body scroll when drawer is open
   useEffect(() => {
@@ -604,16 +605,12 @@ export default function Dashboard() {
       if (!sections.has(sec)) sections.set(sec, []);
       sections.get(sec)!.push(p);
     }
-    // Sort each section by its date column, direction controlled by proposalsSortAsc.
-    // Hired uses hiredAt, others use submittedAt (fallback createdAt).
-    for (const [sec, props] of sections) {
+    // Sort each section by submittedAt (fallback createdAt). Hired uses the
+    // same key as every other section for consistency.
+    for (const [, props] of sections) {
       props.sort((a, b) => {
-        const ta = sec === "Hired"
-          ? (a.hiredAt ? new Date(a.hiredAt).getTime() : 0)
-          : new Date(a.submittedAt || a.createdAt).getTime();
-        const tb = sec === "Hired"
-          ? (b.hiredAt ? new Date(b.hiredAt).getTime() : 0)
-          : new Date(b.submittedAt || b.createdAt).getTime();
+        const ta = new Date(a.submittedAt || a.createdAt).getTime();
+        const tb = new Date(b.submittedAt || b.createdAt).getTime();
         return proposalsSortAsc ? ta - tb : tb - ta;
       });
     }
@@ -648,8 +645,22 @@ export default function Dashboard() {
         .map(([section, props]) => [section, props.filter((p) => p.jobTitle?.toLowerCase().includes(q))] as [string, ProposalData[]])
         .filter(([, props]) => props.length > 0);
     }
+    if (proposalDateFilter) {
+      // Compare in local timezone — bucket each proposal's submittedAt (or
+      // createdAt fallback) to a YYYY-MM-DD key and match the picker value.
+      const toLocalDay = (iso: string) => {
+        const d = new Date(iso);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      };
+      sections = sections
+        .map(([section, props]) => [
+          section,
+          props.filter((p) => toLocalDay(p.submittedAt || p.createdAt) === proposalDateFilter),
+        ] as [string, ProposalData[]])
+        .filter(([, props]) => props.length > 0);
+    }
     return sections;
-  }, [sortedProposalSections, proposalFilter, viewedFilter, proposalSearch]);
+  }, [sortedProposalSections, proposalFilter, viewedFilter, proposalSearch, proposalDateFilter]);
   const filteredProposalCount = useMemo(
     () => filteredProposalSections.reduce((sum, [, props]) => sum + props.length, 0),
     [filteredProposalSections]
@@ -1079,7 +1090,7 @@ export default function Dashboard() {
                 <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider shrink-0">
                   Proposals
                   <span className="ml-2 text-gray-400 font-normal normal-case tracking-normal">
-                    ({filteredProposalCount}{proposalFilter !== "all" || proposalSearch ? ` of ${sortedProposalSections.reduce((s, [, p]) => s + p.length, 0)}` : ""})
+                    ({filteredProposalCount}{proposalFilter !== "all" || proposalSearch || proposalDateFilter ? ` of ${sortedProposalSections.reduce((s, [, p]) => s + p.length, 0)}` : ""})
                   </span>
                 </h2>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -1094,6 +1105,23 @@ export default function Dashboard() {
                     />
                     {proposalSearch && (
                       <button onClick={() => setProposalSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      value={proposalDateFilter}
+                      onChange={(e) => setProposalDateFilter(e.target.value)}
+                      className="text-xs border border-gray-200 rounded-md px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer pr-7"
+                    />
+                    {proposalDateFilter && (
+                      <button
+                        onClick={() => setProposalDateFilter("")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        title="Clear date filter"
+                      >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                       </button>
                     )}
@@ -1205,7 +1233,7 @@ export default function Dashboard() {
               ) : filteredProposalSections.length === 0 ? (
                 <div className="border border-gray-200 rounded-xl py-16 text-center">
                   <p className="text-sm font-medium text-gray-500">No proposals match your filters</p>
-                  <button onClick={() => { setProposalFilter("all"); setViewedFilter("all"); setProposalSearch(""); }} className="mt-2 text-xs text-teal-600 hover:underline">Clear all filters</button>
+                  <button onClick={() => { setProposalFilter("all"); setViewedFilter("all"); setProposalSearch(""); setProposalDateFilter(""); }} className="mt-2 text-xs text-teal-600 hover:underline">Clear all filters</button>
                 </div>
               ) : (
                 <div className="flex flex-col gap-6">
@@ -1231,12 +1259,13 @@ export default function Dashboard() {
                                   <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Pay</th>
                                   <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Account</th>
                                   <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Captured By</th>
+                                  <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Hired At</th>
                                   <th className="text-left px-4 py-3 text-xs tracking-wide">
                                     <button
                                       onClick={() => setProposalsSortAsc(v => !v)}
                                       className="flex items-center gap-1 uppercase font-medium text-gray-500 hover:text-gray-800 transition-colors"
                                     >
-                                      Hired At
+                                      Submitted
                                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`w-3 h-3 transition-transform ${proposalsSortAsc ? "rotate-180" : ""}`}>
                                         <polyline points="6 9 12 15 18 9" />
                                       </svg>
@@ -1302,6 +1331,9 @@ export default function Dashboard() {
                                             {p.contractEndedAt ? `Ended ${fmtDateTime(p.contractEndedAt)}` : "Present"}
                                           </span>
                                         </div>
+                                      </td>
+                                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
+                                        {p.submittedAt ? fmtDateTime(p.submittedAt) : <span className="italic text-gray-300">—</span>}
                                       </td>
                                     </tr>
                                   );
