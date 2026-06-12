@@ -3358,7 +3358,7 @@ async function scrapeContracts() {
   console.log("[UT] scrapeContracts: page text preview =", bodyText.slice(0, 1000));
 
   const lines = bodyText.split("\n").map((l) => l.trim()).filter(Boolean);
-  const SKIP_LINES = /^(Propose new contract|See contract|See timesheet|More options|Download CSV|Filters|Sort by|All contracts|Skip to content|Upwork home|Find work|Deliver work|Manage finances|Messages|Search category|Jobs|Account Settings|\d+ total|\d+ results available|Start date|Descending|Ascending|Staffed by\s+.+)$/i;
+  const SKIP_LINES = /^(Propose new contract|See contract|See timesheet|More options|Download CSV|Filters|Sort by|All contracts|Skip to content|Upwork home|Find work|Deliver work|Manage finances|Messages|Search category|Jobs|Account Settings|\d+ total|\d+ results available|Start date|Descending|Ascending|Staffed by\s+.+|Submit work(?:\s+for\s+payment)?|Leave feedback|Send a message|Make a payment|Pay (?:milestone|bonus)|Release (?:escrow|payment|funds)|Approve(?:\s+\w+)?|Request (?:milestone|an extension)|Add milestone|Fund milestone|View (?:offer|contract|invoice)|Accept offer|Decline offer|End contract|Start contract|Review contract|Give a bonus|Schedule a rate increase)$/i;
 
   // Find all "Hired by X" anchor indices
   const hiredByIndices = [];
@@ -3383,6 +3383,10 @@ async function scrapeContracts() {
     }
     if (!title) {
       console.log("[UT] scrapeContracts: could not find title before index", anchorIdx, "— skipping");
+      continue;
+    }
+    if (SKIP_LINES.test(title) || isBadTitle(title)) {
+      console.log("[UT] scrapeContracts: rejected title", JSON.stringify(title), "— looks like a button/nav label");
       continue;
     }
 
