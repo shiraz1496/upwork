@@ -927,9 +927,9 @@ function isBadTitle(text) {
 
   for (const bad of _badTitleCache) {
     if (lower === bad) return true;
-    // Multi-word phrases substring-match; short patterns must match exactly,
-    // matching the server-side rule in lib/blocked-titles.ts.
-    if (bad.split(" ").length >= 3 && lower.includes(bad)) return true;
+    // Multi-word phrases substring-match; single-word patterns must match
+    // exactly, matching the server-side rule in lib/blocked-titles.ts.
+    if (bad.split(" ").length >= 2 && lower.includes(bad)) return true;
   }
   return false;
 }

@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     for (const p of patterns) {
       const cleaned = p.pattern.toLowerCase().trim();
       if (!cleaned) continue;
-      if (cleaned.split(" ").length >= 3) substringPatterns.push(cleaned);
+      if (cleaned.split(" ").length >= 2) substringPatterns.push(cleaned);
       else exactPatterns.push(cleaned);
     }
 
