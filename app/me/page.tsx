@@ -260,7 +260,7 @@ export default function MePage() {
   const activeTabLabel = TABS.find((t) => t.id === activeTab)?.label ?? "Overview";
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 flex overflow-x-hidden">
+    <div className="min-h-screen bg-gray-50 text-gray-900 flex overflow-x-clip">
       <aside className={`fixed lg:sticky top-0 left-0 h-screen w-64 lg:w-60 bg-white border-r border-gray-200 flex flex-col shrink-0 transition-transform duration-200 z-50 lg:z-auto ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
         <div className="h-14 px-5 flex items-center border-b border-gray-200">
           <div className="flex items-center gap-2">

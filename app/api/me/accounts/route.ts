@@ -78,6 +78,14 @@ export async function GET(req: NextRequest) {
           clientTotalHours: p.clientTotalHours,
           clientMemberSince: p.clientMemberSince,
           clientPaymentVerified: p.clientPaymentVerified,
+          clientCompany: p.clientCompany,
+          hiredAt: p.hiredAt,
+          contractEndedAt: p.contractEndedAt,
+          contractStatus: p.contractStatus,
+          contractRating: p.contractRating,
+          contractBudget: p.contractBudget,
+          contractRate: p.contractRate,
+          contractWeeklyLimit: p.contractWeeklyLimit,
           createdAt: p.createdAt,
           capturedBy: p.capturedByUser
             ? { id: p.capturedByUser.id, name: p.capturedByUser.name }
