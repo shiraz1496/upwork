@@ -334,6 +334,26 @@ async function fetchBiddingCriteria() {
   }
 }
 
+// Pull the dynamic blocked-titles list (admin-managed) so content.js stops
+// relying on its hardcoded array. Cached in chrome.storage so we don't refetch
+// on every page nav; refreshed once per session via the FORCE_SYNC pathway.
+async function fetchBlockedTitles() {
+  const token = await getAuthToken();
+  if (!token) return [];
+  const backendUrl = await getBackendUrl();
+  try {
+    const res = await fetch(`${backendUrl}/api/blocked-titles`, {
+      headers: backendHeaders(token, backendUrl),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.titles || [];
+  } catch (e) {
+    console.warn("[UT BG] fetchBlockedTitles error", e);
+    return [];
+  }
+}
+
 async function fetchRequiredPages() {
   const token = await getAuthToken();
   if (!token) return;
@@ -469,6 +489,10 @@ const handleMessage = safeAsync(async (message) => {
     case "GET_BIDDING_CRITERIA": {
       const criteria = await fetchBiddingCriteria();
       return { criteria };
+    }
+    case "GET_BLOCKED_TITLES": {
+      const titles = await fetchBlockedTitles();
+      return { titles };
     }
     case "GET_FREELANCER_PROFILE":
       return handleGetFreelancerProfile();
