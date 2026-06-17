@@ -64,6 +64,7 @@ export function BlockedTitlesView() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -168,6 +169,28 @@ export function BlockedTitlesView() {
     }
   }
 
+  async function deleteSampleRow(id: string) {
+    if (!confirm("Delete this proposal row from the database?")) return;
+    setRowPendingId(id);
+    try {
+      const res = await fetch(`/api/admin/blocked-titles/sync/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) return;
+      setSyncResult((prev) =>
+        prev
+          ? {
+              ...prev,
+              matched: Math.max(0, prev.matched - 1),
+              sample: prev.sample.filter((r) => r.id !== id),
+            }
+          : prev,
+      );
+    } finally {
+      setRowPendingId(null);
+    }
+  }
+
   async function confirmDeleteMatches() {
     if (!syncResult || syncResult.matched === 0) return;
     const ok = confirm(
@@ -199,9 +222,9 @@ export function BlockedTitlesView() {
       <div className="mb-4">
         <h2 className="text-base font-semibold text-gray-900">Blocked Titles</h2>
         <p className="text-xs text-gray-400 mt-0.5">
-          Strings the scraper must NOT save as a job title. Matching rule: short
-          patterns (≤2 words) must match exactly; 3+ word phrases match as
-          substrings. Changes propagate to the server within ~60s.
+          Strings the scraper must NOT save as a job title. Matching rule:
+          single-word patterns must match exactly; any 2+ word phrase matches
+          as a substring. Changes propagate to the server within ~60s.
         </p>
       </div>
 
@@ -273,6 +296,7 @@ export function BlockedTitlesView() {
                         <th className="text-left px-3 py-2 text-gray-500 font-medium uppercase tracking-wide">
                           Type
                         </th>
+                        <th className="px-3 py-2" />
                       </tr>
                     </thead>
                     <tbody>
@@ -286,6 +310,36 @@ export function BlockedTitlesView() {
                           </td>
                           <td className="px-3 py-1.5 text-gray-500">
                             {row.hiredAt ? "Contract" : "Proposal"}
+                          </td>
+                          <td className="px-3 py-1.5 text-right">
+                            <button
+                              type="button"
+                              disabled={rowPendingId === row.id}
+                              onClick={() => deleteSampleRow(row.id)}
+                              title="Delete this row"
+                              aria-label="Delete this row"
+                              className="text-rose-600 hover:text-rose-700 disabled:opacity-50"
+                            >
+                              {rowPendingId === row.id ? (
+                                <Spinner className="w-3 h-3" />
+                              ) : (
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth={2}
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  className="w-3.5 h-3.5"
+                                >
+                                  <polyline points="3 6 5 6 21 6" />
+                                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                                  <path d="M10 11v6" />
+                                  <path d="M14 11v6" />
+                                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                                </svg>
+                              )}
+                            </button>
                           </td>
                         </tr>
                       ))}

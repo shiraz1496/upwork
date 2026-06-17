@@ -36,7 +36,10 @@ export function invalidateBlockedTitleCache() {
 // avoids "open job" filtering out e.g. "open job for senior dev".
 function matchesPattern(lower: string, pattern: string): boolean {
   if (lower === pattern) return true;
-  if (pattern.split(" ").length >= 3 && lower.includes(pattern)) return true;
+  // Multi-word patterns substring-match so chrome like "Submitted proposals
+  // (44)" gets caught by a "submitted proposals" entry. Single-word patterns
+  // (e.g. "help", "approve") stay exact-only to avoid filtering real titles.
+  if (pattern.split(" ").length >= 2 && lower.includes(pattern)) return true;
   return false;
 }
 
