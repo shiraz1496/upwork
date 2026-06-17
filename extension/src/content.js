@@ -860,7 +860,10 @@ function watchForFeedCardVerdicts() {
 }
 
 // ── Bad titles to always skip ──
-const BAD_TITLES = [
+// Fallback list — used while the dynamic admin-managed list is fetching, or
+// when the backend is unreachable. Once fetched, the dynamic list is the
+// source of truth and supersedes this.
+const FALLBACK_BAD_TITLES = [
   "open job in a new window", "open job", "my proposals", "my stats",
   "find work", "saved jobs", "send a proposal", "submit a proposal",
   "learn more", "upgrade", "contract-to-hire", "similar jobs",
@@ -871,11 +874,63 @@ const BAD_TITLES = [
   "post a job", "manage finances", "reports",
 ];
 
+let _badTitleCache = null;       // Array<string> | null
+let _badTitleCacheTs = 0;
+const BAD_TITLE_TTL_MS = 5 * 60 * 1000;
+
+// Kick off a refresh — fire-and-forget. Resolves the cache for the next call.
+async function refreshBadTitles() {
+  try {
+    if (!isContextValid()) return;
+    const stored = await chrome.storage.local.get(["_badTitlesCache", "_badTitlesCacheTs"]);
+    const now = Date.now();
+    if (Array.isArray(stored._badTitlesCache) && now - (stored._badTitlesCacheTs || 0) < BAD_TITLE_TTL_MS) {
+      _badTitleCache = stored._badTitlesCache;
+      _badTitleCacheTs = stored._badTitlesCacheTs;
+      return;
+    }
+    const data = await new Promise((resolve) =>
+      chrome.runtime.sendMessage({ type: "GET_BLOCKED_TITLES" }, resolve)
+    );
+    const titles = (data && data.titles) || [];
+    // Extension reads everything Upwork shows in proposal/job lists, so it
+    // wants "all" + "proposals" scoped entries (contract-only chrome doesn't
+    // belong on freelance/job pages).
+    const patterns = titles
+      .filter((t) => t.scope === "all" || t.scope === "proposals")
+      .map((t) => String(t.pattern || "").toLowerCase().trim())
+      .filter(Boolean);
+    if (patterns.length > 0) {
+      _badTitleCache = patterns;
+      _badTitleCacheTs = now;
+      await chrome.storage.local.set({ _badTitlesCache: patterns, _badTitlesCacheTs: now });
+    }
+  } catch {
+    // context invalidated or network — fall back silently
+  }
+}
+
+// Synchronous matcher: callers run in tight DOM loops, so we can't await per
+// title. We seed with the fallback, kick off a refresh on first use, and
+// subsequent calls see the fresh list once it lands in cache.
 function isBadTitle(text) {
-  const lower = text.toLowerCase().trim();
+  const lower = String(text || "").toLowerCase().trim();
   if (lower.length < 5) return true;
-  if (BAD_TITLES.some((bad) => lower === bad || lower.includes(bad))) return true;
   if (lower.startsWith("http")) return true;
+
+  if (_badTitleCache === null) {
+    _badTitleCache = FALLBACK_BAD_TITLES.slice();
+    refreshBadTitles();
+  } else if (Date.now() - _badTitleCacheTs > BAD_TITLE_TTL_MS) {
+    refreshBadTitles();
+  }
+
+  for (const bad of _badTitleCache) {
+    if (lower === bad) return true;
+    // Multi-word phrases substring-match; short patterns must match exactly,
+    // matching the server-side rule in lib/blocked-titles.ts.
+    if (bad.split(" ").length >= 3 && lower.includes(bad)) return true;
+  }
   return false;
 }
 

@@ -6,6 +6,7 @@ import { TeamStatsView } from "@/components/admin/TeamStatsView";
 import { CoveragePagesView } from "@/components/admin/CoveragePagesView";
 import { CoverageLeaderboardView } from "@/components/admin/CoverageLeaderboardView";
 import { BiddingCriteriaView } from "@/components/admin/BiddingCriteriaView";
+import { BlockedTitlesView } from "@/components/admin/BlockedTitlesView";
 import { AccountManagementView } from "@/components/admin/AccountManagementView";
 import { DuplicateProposalsView } from "@/components/admin/DuplicateProposalsView";
 import { OverviewPanel } from "@/components/OverviewPanel";
@@ -87,6 +88,7 @@ const IconSignOut = () => (<svg {...iconProps}><path d="M9 21H5a2 2 0 0 1-2-2V5a
 const IconCompass = () => (<svg {...iconProps}><circle cx="12" cy="12" r="10" /><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" /></svg>);
 const IconTrophy = () => (<svg {...iconProps}><polyline points="14 9 9 9 9 2 15 2 15 9 10 9" /><path d="M5 9H3a2 2 0 0 0-2 2v1a6 6 0 0 0 6 6h6a6 6 0 0 0 6-6v-1a2 2 0 0 0-2-2h-2" /><line x1="12" y1="18" x2="12" y2="22" /><line x1="8" y1="22" x2="16" y2="22" /></svg>);
 const IconClipboard = () => (<svg {...iconProps}><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" /><rect x="9" y="3" width="6" height="4" rx="1" ry="1" /><line x1="9" y1="12" x2="15" y2="12" /><line x1="9" y1="16" x2="12" y2="16" /></svg>);
+const IconFileX = () => (<svg {...iconProps}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="10" y1="13" x2="14" y2="17" /><line x1="14" y1="13" x2="10" y2="17" /></svg>);
 
 function StatCard({ label, value, sub, color, delta }: {
   label: string;
@@ -418,6 +420,7 @@ type Tab =
   | "coverage-pages"
   | "leaderboard"
   | "bidding-criteria"
+  | "blocked-titles"
   | "accounts"
   | "duplicate-proposals";
 
@@ -462,6 +465,12 @@ export default function Dashboard() {
   const [disableModal, setDisableModal] = useState<{ accountId: string; accountName: string; current: boolean; reason: string | null } | null>(null);
   const [disableReason, setDisableReason] = useState("");
   const [disableSaving, setDisableSaving] = useState(false);
+
+  // Dev-only escape hatch: ?secret-dev=yes reveals the "Blocked Titles" tab.
+  const [secretDev, setSecretDev] = useState(false);
+  useEffect(() => {
+    setSecretDev(new URLSearchParams(window.location.search).get("secret-dev") === "yes");
+  }, []);
 
   async function handleToggleDisabled() {
     if (!disableModal) return;
@@ -791,7 +800,8 @@ export default function Dashboard() {
     { id: "leaderboard", label: "Leaderboard", icon: <IconTrophy /> },
     { id: "coverage-pages", label: "Coverage Pages", icon: <IconCompass /> },
     { id: "bidding-criteria", label: "Bid Criteria", icon: <IconClipboard /> },
-    ...(process.env.NEXT_PUBLIC_SHOW_DUPLICATES === "true" ? [{ id: "duplicate-proposals" as Tab, label: "Duplicates", icon: <IconFile /> }] : []),
+    ...(secretDev ? [{ id: "blocked-titles" as Tab, label: "Blocked Titles", icon: <IconFileX /> }] : []),
+    ...(secretDev ? [{ id: "duplicate-proposals" as Tab, label: "Duplicates", icon: <IconFile /> }] : []),
   ];
 
   const activeTabLabel =
@@ -1188,10 +1198,10 @@ export default function Dashboard() {
                         }}
                         disabled={bulkNudgeState === "loading"}
                         className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${bulkNudgeState === "ok"
-                            ? "bg-green-50 border-green-200 text-green-700"
-                            : bulkNudgeState === "error"
-                              ? "bg-rose-50 border-rose-200 text-rose-700"
-                              : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
+                          ? "bg-green-50 border-green-200 text-green-700"
+                          : bulkNudgeState === "error"
+                            ? "bg-rose-50 border-rose-200 text-rose-700"
+                            : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
                           }`}
                         title={bulkNudgeMessage ?? `Nudge ${unscannedIds.length} unscanned proposal${unscannedIds.length === 1 ? "" : "s"}`}
                       >
@@ -1483,10 +1493,10 @@ export default function Dashboard() {
                                                 });
                                             }}
                                             className={`text-[10px] px-2 py-0.5 rounded border font-medium transition-colors ${nudgeState[p.id] === "ok"
-                                                ? "bg-green-50 border-green-200 text-green-700"
-                                                : nudgeState[p.id] === "error"
-                                                  ? "bg-rose-50 border-rose-200 text-rose-700"
-                                                  : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
+                                              ? "bg-green-50 border-green-200 text-green-700"
+                                              : nudgeState[p.id] === "error"
+                                                ? "bg-rose-50 border-rose-200 text-rose-700"
+                                                : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
                                               }`}
                                             disabled={nudgeState[p.id] === "loading" || nudgeState[p.id] === "ok"}
                                           >
@@ -1772,7 +1782,8 @@ export default function Dashboard() {
           {activeTab === "leaderboard" && <CoverageLeaderboardView />}
           {/* ── Bid Criteria Tab ─────────────────────────────────────────────── */}
           {activeTab === "bidding-criteria" && <BiddingCriteriaView />}
-          {activeTab === "duplicate-proposals" && <DuplicateProposalsView />}
+          {activeTab === "blocked-titles" && secretDev && <BlockedTitlesView />}
+          {activeTab === "duplicate-proposals" && secretDev && <DuplicateProposalsView />}
 
           {/* ── Footer ───────────────────────────────────────────────────────── */}
           <div className="text-center text-xs text-gray-400 border-t border-gray-100 mt-4 py-4">

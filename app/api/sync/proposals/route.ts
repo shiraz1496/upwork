@@ -2,47 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withAttribution, firstCaptureFields, resolveAccount } from "@/lib/attribution";
 import { upsertCoverageReference } from "@/lib/coverage";
+import { isBadTitle } from "@/lib/blocked-titles";
 
 const ACTIVE_SECTIONS = new Set(["Active", "Interviewing", "Offers"]);
 const VIEWED_SECTIONS = new Set(["Active proposals", "Interviewing", "Offers", "Active"]);
-
-const BAD_TITLES = new Set([
-  "open job in a new window", "open job", "my proposals", "my stats",
-  "find work", "saved jobs", "send a proposal", "submit a proposal",
-  "learn more", "upgrade", "contract-to-hire", "similar jobs",
-  "apply now", "save job", "view profile", "sign in", "log in",
-  "messages", "help", "settings", "view job posting", "view job",
-  "proposal details", "job details", "insights",
-  "search for jobs", "manage your profile", "browse jobs", "find a job",
-  "post a job", "manage finances", "reports",
-  "send a message", "submit work for payment", "leave feedback",
-  "view offer", "accept offer", "decline offer", "end contract",
-  "give a bonus", "fund milestone", "request an extension",
-  "view contract", "start contract", "review contract", "pay bonus",
-  "job is closed", "viewed by client", "personal note from client",
-  "schedule a rate increase", "footer navigation", "freelancer plus",
-]);
-
-function isBadTitle(title: string): boolean {
-  const lower = title.toLowerCase().trim();
-  if (lower.length < 5) return true;
-  // "Your proposal for <job title> was viewed." — notification text
-  if (/^your proposal for .+ was viewed\.?$/.test(lower)) return true;
-  // "New job: <title> <time>" — Upwork new-job notification
-  if (/^new job:/.test(lower)) return true;
-  // "Your proposal may still appear if a boosted slot reopens..." — auction notice
-  if (/^your proposal may still appear/.test(lower)) return true;
-  // Pagination / UI chrome
-  if (/^current page \d/.test(lower)) return true;
-  // Upwork "Freelancer Plus" upsell banner
-  if (/freelancer plus/.test(lower)) return true;
-  for (const bad of BAD_TITLES) {
-    if (lower === bad) return true;
-    // Only substring-match multi-word phrases; single/two-word entries must match exactly
-    if (bad.split(" ").length >= 3 && lower.includes(bad)) return true;
-  }
-  return false;
-}
 
 function tryParseDate(str: string): Date | null {
   if (!str) return null;
@@ -69,7 +32,7 @@ export const POST = withAttribution(async ({ req, member }) => {
 
     let saved = 0;
     for (const p of proposals) {
-      if (!p.title || isBadTitle(p.title)) {
+      if (!p.title || (await isBadTitle(p.title, "proposals"))) {
         continue;
       }
       const jobUrl = p.url || null;

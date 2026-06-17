@@ -313,3 +313,17 @@ model VisitLog {
   @@index([memberId, coveredAt])
   @@index([coveredAt])
 }
+
+// Strings the extension and sync endpoints must NOT treat as a job title.
+// Managed dynamically from the admin UI; replaces the hardcoded BAD_TITLES
+// arrays in extension/src/content.js + app/api/sync/{proposals,contracts}.
+model BlockedTitle {
+  id        String   @id @default(cuid())
+  pattern   String   @unique
+  scope     String   @default("all") // "all" | "proposals" | "contracts"
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, scope])
+}

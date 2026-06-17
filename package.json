@@ -15,6 +15,7 @@
     "db:remove-archived": "sh -c 'set -a && source .env && set +a && DATABASE_URL=$DATABASE_URL node scripts/remove-archived-proposals.mjs'",
     "db:remove-bad-titles:dry": "sh -c 'set -a && source .env && set +a && DIRECT_URL=$DIRECT_URL node scripts/remove-bad-title-proposals.mjs --dry-run'",
     "db:remove-bad-titles": "sh -c 'set -a && source .env && set +a && DIRECT_URL=$DIRECT_URL node scripts/remove-bad-title-proposals.mjs'",
+    "db:seed-blocked-titles": "sh -c 'set -a && source .env && set +a && DIRECT_URL=$DIRECT_URL node scripts/seed-blocked-titles.mjs'",
     "db:drop-snapshot": "sh -c 'set -a && source .env && set +a && DATABASE_URL=$DATABASE_URL npx prisma db execute --file scripts/drop-snapshot-table.sql'",
     "ext": "./extension/build.sh"
   },

@@ -1,23 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withAttribution, resolveAccount } from "@/lib/attribution";
-
-const BAD_TITLES = new Set([
-  "send a message", "submit work for payment", "leave feedback",
-  "view offer", "accept offer", "decline offer", "end contract",
-  "give a bonus", "fund milestone", "request an extension",
-  "view contract", "start contract", "review contract", "pay bonus",
-  "make a payment", "pay milestone", "release escrow", "release payment",
-  "release funds", "approve", "add milestone", "view invoice",
-  "schedule a rate increase", "more options", "see timesheet",
-  "propose new contract",
-]);
-
-function isBadTitle(title: string): boolean {
-  const lower = title.toLowerCase().trim();
-  if (lower.length < 5) return true;
-  return BAD_TITLES.has(lower);
-}
+import { isBadTitle } from "@/lib/blocked-titles";
 
 function parseContractDate(str: string | null | undefined): Date | null {
   if (!str || /^\s*$/.test(str)) return null;
@@ -51,7 +35,7 @@ export const POST = withAttribution(async ({ req, member }) => {
     let updated = 0;
     let created = 0;
     for (const c of contracts) {
-      if (!c.title || isBadTitle(c.title)) {
+      if (!c.title || (await isBadTitle(c.title, "contracts"))) {
         console.log("[sync/contracts] skipping contract with bad/missing title:", JSON.stringify(c));
         continue;
       }
