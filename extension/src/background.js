@@ -745,11 +745,15 @@ async function handleScrapedMessages(payload) {
 
   // Compare needAttention with previously stored to find NEW unreplied messages
   const stored = await chrome.storage.local.get(["lastNeedAttention", "unrepliedMessages"]);
+
+  // On first install lastNeedAttention is absent — save baseline silently to
+  // avoid flooding the user with notifications for every historical message.
+  const isFirstScrape = stored.lastNeedAttention == null;
   const prevKeys = new Set((stored.lastNeedAttention || []).map((m) => `${m.senderName}:${m.preview || ""}`));
 
-  const brandNew = needAttention.filter(
-    (m) => !prevKeys.has(`${m.senderName}:${m.preview || ""}`)
-  );
+  const brandNew = isFirstScrape
+    ? []
+    : needAttention.filter((m) => !prevKeys.has(`${m.senderName}:${m.preview || ""}`));
 
   // Send browser notification only for brand new unreplied messages
   for (const msg of brandNew) {

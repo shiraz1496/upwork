@@ -14,7 +14,8 @@ type ProposalRow = {
 };
 
 type DupGroup = {
-  jobUrl: string;
+  groupKey: string;
+  jobUrl: string | null;
   jobTitle: string | null;
   toDelete?: ProposalRow[];
   toKeep?: ProposalRow[];
@@ -33,6 +34,32 @@ function fmtDateTime(iso: string | null): string {
   );
 }
 
+function JobLabel({
+  jobTitle,
+  jobUrl,
+  className,
+}: {
+  jobTitle: string | null;
+  jobUrl: string | null;
+  className?: string;
+}) {
+  const label = jobTitle ?? <span className="italic text-gray-400 font-normal">Untitled job</span>;
+  if (jobUrl) {
+    return (
+      <a
+        href={jobUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={className}
+        title={jobTitle ?? jobUrl}
+      >
+        {label}
+      </a>
+    );
+  }
+  return <span className={className}>{label}</span>;
+}
+
 export function DuplicateProposalsView() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +70,7 @@ export function DuplicateProposalsView() {
 
   // tier2 per-row delete state: maps proposal id -> loading
   const [deletingIds, setDeletingIds] = useState<Record<string, boolean>>({});
-  // tier2 per-group delete-all state: maps jobUrl -> loading
+  // tier2 per-group delete-all state: maps groupKey -> loading
   const [deletingGroups, setDeletingGroups] = useState<Record<string, boolean>>({});
 
   const loadData = useCallback(async () => {
@@ -86,8 +113,8 @@ export function DuplicateProposalsView() {
     }
   }
 
-  async function handleDeleteGroup(jobUrl: string, ids: string[]) {
-    setDeletingGroups((prev) => ({ ...prev, [jobUrl]: true }));
+  async function handleDeleteGroup(groupKey: string, ids: string[]) {
+    setDeletingGroups((prev) => ({ ...prev, [groupKey]: true }));
     try {
       const res = await fetch("/api/admin/duplicate-proposals", {
         method: "DELETE",
@@ -96,14 +123,14 @@ export function DuplicateProposalsView() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setData((prev) =>
-        prev ? { ...prev, tier2: prev.tier2.filter((g) => g.jobUrl !== jobUrl) } : prev
+        prev ? { ...prev, tier2: prev.tier2.filter((g) => g.groupKey !== groupKey) } : prev
       );
     } catch (e) {
       alert(`Failed: ${e instanceof Error ? e.message : "unknown"}`);
     } finally {
       setDeletingGroups((prev) => {
         const next = { ...prev };
-        delete next[jobUrl];
+        delete next[groupKey];
         return next;
       });
     }
@@ -121,7 +148,11 @@ export function DuplicateProposalsView() {
       setData((prev) => {
         if (!prev) return prev;
         return {
-          ...prev,
+          tier1: prev.tier1.map((g) => ({
+            ...g,
+            toKeep: (g.toKeep ?? []).filter((p) => p.id !== proposalId),
+            toDelete: (g.toDelete ?? []).filter((p) => p.id !== proposalId),
+          })),
           tier2: prev.tier2
             .map((g) => ({
               ...g,
@@ -198,7 +229,7 @@ export function DuplicateProposalsView() {
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
               <span className="font-semibold">{tier1DeleteCount} proposal{tier1DeleteCount !== 1 ? "s" : ""}</span>{" "}
-              were misattributed in 2 bulk sync events and can be safely deleted.
+              were misattributed in bulk sync events and can be safely deleted.
             </div>
             {!confirmBulk && (
               <button
@@ -242,21 +273,15 @@ export function DuplicateProposalsView() {
                 const del = group.toDelete ?? [];
                 return (
                   <li key={i} className="px-5 py-3 flex items-center gap-4 text-sm">
-                    {/* Job title */}
                     <div className="w-48 shrink-0 truncate font-medium text-gray-900">
-                      <a
-                        href={group.jobUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <JobLabel
+                        jobTitle={group.jobTitle}
+                        jobUrl={group.jobUrl}
                         className="hover:text-teal-600 hover:underline"
-                        title={group.jobTitle ?? group.jobUrl}
-                      >
-                        {group.jobTitle ?? <span className="text-gray-400 font-normal italic">Untitled</span>}
-                      </a>
+                      />
                     </div>
 
                     <div className="flex items-center gap-6 flex-1 min-w-0">
-                      {/* Keep side */}
                       {keep.map((p) => (
                         <div key={p.id} className="flex flex-col gap-0.5">
                           <span className="text-[11px] uppercase tracking-wide text-green-600 font-semibold">
@@ -264,6 +289,14 @@ export function DuplicateProposalsView() {
                           </span>
                           <span className="text-gray-900 font-medium truncate">{p.accountName}</span>
                           <span className="text-xs text-gray-500">{fmtDateTime(p.capturedAt)}</span>
+                          <button
+                            onClick={() => handleDeleteOne(p.id)}
+                            disabled={!!deletingIds[p.id]}
+                            className="mt-1 inline-flex items-center gap-1 px-2 py-1 bg-white border border-red-200 hover:bg-red-50 disabled:opacity-50 text-red-600 text-[10px] font-medium rounded transition-colors"
+                          >
+                            {deletingIds[p.id] && <Spinner />}
+                            {deletingIds[p.id] ? "Deleting…" : "Delete this one"}
+                          </button>
                         </div>
                       ))}
 
@@ -277,7 +310,6 @@ export function DuplicateProposalsView() {
                         <path d="M5 12h14M13 6l6 6-6 6" />
                       </svg>
 
-                      {/* Delete side */}
                       {del.map((p) => (
                         <div key={p.id} className="flex flex-col gap-0.5">
                           <span className="text-[11px] uppercase tracking-wide text-red-500 font-semibold">
@@ -319,23 +351,18 @@ export function DuplicateProposalsView() {
               return (
                 <div key={i} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                   <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-4">
-                    <a
-                      href={group.jobUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <JobLabel
+                      jobTitle={group.jobTitle}
+                      jobUrl={group.jobUrl}
                       className="text-sm font-semibold text-gray-900 hover:text-teal-600 hover:underline"
-                    >
-                      {group.jobTitle ?? (
-                        <span className="italic text-gray-400 font-normal">Untitled job</span>
-                      )}
-                    </a>
+                    />
                     <button
-                      onClick={() => handleDeleteGroup(group.jobUrl, proposals.map((p) => p.id))}
-                      disabled={!!deletingGroups[group.jobUrl]}
+                      onClick={() => handleDeleteGroup(group.groupKey, proposals.map((p) => p.id))}
+                      disabled={!!deletingGroups[group.groupKey]}
                       className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors shadow-sm"
                     >
-                      {deletingGroups[group.jobUrl] && <Spinner />}
-                      {deletingGroups[group.jobUrl] ? "Deleting…" : "Delete all in group"}
+                      {deletingGroups[group.groupKey] && <Spinner />}
+                      {deletingGroups[group.groupKey] ? "Deleting…" : "Delete all in group"}
                     </button>
                   </div>
                   <div className="overflow-x-auto">
