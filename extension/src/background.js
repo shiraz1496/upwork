@@ -182,12 +182,10 @@ async function ensureAlarm(name, opts) {
   if (!existing) chrome.alarms.create(name, opts);
 }
 ensureAlarm("check-alerts", { periodInMinutes: 2 });
-ensureAlarm("reply-reminder", { periodInMinutes: 3 });
 ensureAlarm("refresh-required-pages", { periodInMinutes: 30 });
 ensureAlarm("nudge-poll", { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "check-alerts") checkForAlerts();
-  if (alarm.name === "reply-reminder") checkUnrepliedMessages();
   if (alarm.name === "refresh-required-pages") fetchRequiredPages();
   if (alarm.name === "nudge-poll") pollPendingNudges().catch((e) => console.warn("[UT BG] nudge poll failed:", e));
 });
@@ -257,30 +255,6 @@ async function checkForAlerts() {
   await chrome.storage.local.set({ lastAlertCheck: Date.now() });
 }
 
-async function checkUnrepliedMessages() {
-  const data = await chrome.storage.local.get(["unrepliedMessages"]);
-  const unreplied = data.unrepliedMessages || [];
-
-  for (const msg of unreplied) {
-    const ageMs = Date.now() - (msg.detectedAt || 0);
-    const ageMinutes = Math.round(ageMs / 60000);
-
-    if (ageMs > 2 * 60 * 1000 && !msg.reminded) {
-      // Send urgent reminder notification
-      chrome.notifications.create(`reminder-${msg.senderName}-${Date.now()}`, {
-        type: "basic",
-        iconUrl: chrome.runtime.getURL("src/icon128.png"),
-        title: "URGENT: Unreplied Message",
-        message: `You haven't replied to ${msg.senderName || "a client"}'s message (${ageMinutes} min ago)`,
-      });
-
-      msg.reminded = true;
-
-    }
-  }
-
-  await chrome.storage.local.set({ unrepliedMessages: unreplied });
-}
 
 async function handleGetFreelancerProfile() {
   // Try the backend first (has skills/overview from profile page scrapes)
@@ -743,51 +717,6 @@ async function handleScrapedMessages(payload) {
   const fid = await getFreelancerId();
   if (!fid) return { ok: false, note: "No userId" };
 
-  // Compare needAttention with previously stored to find NEW unreplied messages
-  const stored = await chrome.storage.local.get(["lastNeedAttention", "unrepliedMessages"]);
-
-  // On first install lastNeedAttention is absent — save baseline silently to
-  // avoid flooding the user with notifications for every historical message.
-  const isFirstScrape = stored.lastNeedAttention == null;
-  const prevKeys = new Set((stored.lastNeedAttention || []).map((m) => `${m.senderName}:${m.preview || ""}`));
-
-  const brandNew = isFirstScrape
-    ? []
-    : needAttention.filter((m) => !prevKeys.has(`${m.senderName}:${m.preview || ""}`));
-
-  // Send browser notification only for brand new unreplied messages
-  for (const msg of brandNew) {
-    chrome.notifications.create(`msg-${msg.senderName}-${Date.now()}`, {
-      type: "basic",
-      iconUrl: chrome.runtime.getURL("src/icon128.png"),
-      title: "New Upwork Message",
-      message: `${msg.senderName || "Someone"}: ${msg.preview || "New message"}`,
-    });
-  }
-
-  // Track unreplied messages for reminder system
-  const unreplied = stored.unrepliedMessages || [];
-  for (const msg of brandNew) {
-    unreplied.push({
-      senderName: msg.senderName,
-      preview: msg.preview,
-      url: msg.url,
-      detectedAt: Date.now(),
-      reminded: false,
-    });
-  }
-
-  // Remove from unreplied list if now replied
-  const repliedNames = new Set(nowReplied.map((m) => m.senderName));
-  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  const activeUnreplied = unreplied.filter(
-    (m) => m.detectedAt > oneDayAgo && !repliedNames.has(m.senderName)
-  );
-
-  await chrome.storage.local.set({
-    lastNeedAttention: needAttention,
-    unrepliedMessages: activeUnreplied,
-  });
 
   // Sync to backend: only needAttention as new alerts
   const alerts = needAttention.map((m) => ({
