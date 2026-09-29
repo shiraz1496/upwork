@@ -2,7 +2,9 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
+const globalForPrisma = globalThis as unknown as {
+  prisma: ReturnType<typeof createPrismaClient>;
+};
 
 function parseDatabaseUrl(url: string) {
   // Use last @ as host delimiter so passwords containing @ are handled correctly
@@ -32,10 +34,16 @@ function createPrismaClient() {
     host,
     port,
     database,
-    ssl: { rejectUnauthorized: false },
+    // Local dev Postgres (docker) has no SSL; hosted DBs require it.
+    ssl: host === "localhost" || host === "127.0.0.1" ? false : { rejectUnauthorized: false },
   });
   const adapter = new PrismaPg(pool);
-  return new PrismaClient({ adapter });
+  return new PrismaClient({
+    adapter,
+    // Never return password hashes by accident (e.g. `include: { member: true }` sent to the client).
+    // Login code opts back in with `omit: { passwordHash: false }`.
+    omit: { teamMember: { passwordHash: true } },
+  });
 }
 
 export const prisma = globalForPrisma.prisma ?? createPrismaClient();

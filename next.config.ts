@@ -1,20 +1,20 @@
 import type { NextConfig } from "next";
 
+// The dashboard calls its own API same-origin; the only cross-origin caller was the
+// (removed) extension. Allow just APP_BASE_URL — never "*" on a cookie-authenticated API.
+const appOrigin = process.env.APP_BASE_URL ? new URL(process.env.APP_BASE_URL).origin : null;
+
 const nextConfig: NextConfig = {
-  allowedDevOrigins: [
-    "5707-2407-d000-1a-8e89-d1ac-1694-a188-6c83.ngrok-free.app",
-    "2454-2407-d000-1a-8e89-d1ac-1694-a188-6c83.ngrok-free.app",
-    "*.ngrok-free.app",
-    "*.ngrok.io"
-  ],
   async headers() {
+    if (!appOrigin) return [];
     return [
       {
         source: "/api/:path*",
         headers: [
-          { key: "Access-Control-Allow-Origin", value: "*" },
-          { key: "Access-Control-Allow-Methods", value: "GET, POST, OPTIONS" },
-          { key: "Access-Control-Allow-Headers", value: "Content-Type, Authorization" },
+          { key: "Access-Control-Allow-Origin", value: appOrigin },
+          { key: "Access-Control-Allow-Methods", value: "GET, POST, PATCH, DELETE, OPTIONS" },
+          { key: "Access-Control-Allow-Headers", value: "Content-Type" },
+          { key: "Vary", value: "Origin" },
         ],
       },
     ];

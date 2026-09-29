@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { Spinner } from "@/components/ui/Spinner";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 
 export default function AdminLoginPage() {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -16,13 +18,13 @@ export default function AdminLoginPage() {
       const res = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email, password }),
       });
       if (res.ok) {
         window.location.href = "/";
         return;
       }
-      if (res.status === 401) setError("Wrong password.");
+      if (res.status === 401) setError("Wrong email or password.");
       else setError(`Login failed (HTTP ${res.status}).`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Network error");
@@ -36,17 +38,28 @@ export default function AdminLoginPage() {
       <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded border border-gray-200 p-6">
         <div>
           <h1 className="text-xl font-semibold">Admin login</h1>
-          <p className="mt-1 text-sm text-gray-500">Enter the admin password to continue.</p>
+          <p className="mt-1 text-sm text-gray-500">Sign in with your admin email and password.</p>
         </div>
         {error && <div className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</div>}
         <label className="block text-sm">
-          <span className="mb-1 block font-medium text-gray-700">Password</span>
+          <span className="mb-1 block font-medium text-gray-700">Email</span>
           <input
-            type="password"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoFocus
+            autoComplete="email"
+            className="w-full rounded border border-gray-300 px-3 py-2"
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium text-gray-700">Password</span>
+          <PasswordInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            autoFocus
+            autoComplete="current-password"
             className="w-full rounded border border-gray-300 px-3 py-2"
           />
         </label>

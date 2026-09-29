@@ -27,7 +27,6 @@ export const POST = withAttribution(async ({ req, member }) => {
     }
 
     console.log("[sync/contracts] freelancerId:", freelancerId, "contracts:", contracts.length);
-    contracts.forEach((c: Record<string, unknown>, i: number) => console.log(`  [${i}]`, JSON.stringify(c)));
 
     const account = await resolveAccount(freelancerId);
     if (!account) return NextResponse.json({ error: "Failed to resolve account" }, { status: 500 });
@@ -36,7 +35,7 @@ export const POST = withAttribution(async ({ req, member }) => {
     let created = 0;
     for (const c of contracts) {
       if (!c.title || (await isBadTitle(c.title, "contracts"))) {
-        console.log("[sync/contracts] skipping contract with bad/missing title:", JSON.stringify(c));
+        console.log("[sync/contracts] skipping contract with bad/missing title");
         continue;
       }
 
@@ -79,7 +78,7 @@ export const POST = withAttribution(async ({ req, member }) => {
             capturedAt: new Date(),
           },
         });
-        console.log("[sync/contracts] Created proposal", newProposal.id, "from contract:", JSON.stringify(c.title), "hiredAt:", hiredAt);
+        console.log("[sync/contracts] Created proposal", newProposal.id);
         created++;
         continue;
       }
@@ -105,7 +104,7 @@ export const POST = withAttribution(async ({ req, member }) => {
     return NextResponse.json({ ok: true, updated, created });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("[sync/contracts] ERROR:", message, err);
+    console.error("[sync/contracts] ERROR:", message);
     return NextResponse.json({ error: "Failed to sync contracts", detail: message }, { status: 500 });
   }
 });

@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { logError } from "@/lib/log";
+import { requireAdmin, adminErrorResponse, AdminAuthError } from "@/lib/admin-auth";
 
 export async function GET() {
   try {
+    await requireAdmin();
     const accounts = await prisma.account.findMany({
       include: {
         profile: { include: { capturedByUser: { select: { id: true, name: true } } } },
@@ -121,8 +124,8 @@ export async function GET() {
 
     return NextResponse.json(result);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[accounts]", message);
+    if (err instanceof AdminAuthError) return adminErrorResponse(err);
+    logError("accounts", err);
     return NextResponse.json({ error: "Failed to fetch accounts" }, { status: 500 });
   }
 }

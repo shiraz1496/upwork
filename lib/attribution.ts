@@ -1,11 +1,15 @@
 import type { NextRequest } from "next/server";
-import type { TeamMember } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { resolveExtensionToken, AuthError, authErrorResponse } from "@/lib/member-auth";
+import {
+  resolveExtensionToken,
+  AuthError,
+  authErrorResponse,
+  type SafeMember,
+} from "@/lib/member-auth";
 
 export type AttributionContext = {
   req: NextRequest;
-  member: TeamMember;
+  member: SafeMember;
   tokenId: string;
 };
 
@@ -24,7 +28,7 @@ export function withAttribution(
   };
 }
 
-export function firstCaptureFields(member: TeamMember) {
+export function firstCaptureFields(member: SafeMember) {
   return { capturedByUserId: member.id, capturedAt: new Date() };
 }
 

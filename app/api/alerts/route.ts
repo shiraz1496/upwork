@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { logError } from "@/lib/log";
+import { requireAdmin, adminErrorResponse, AdminAuthError } from "@/lib/admin-auth";
 
 export async function GET() {
   try {
+    await requireAdmin();
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     const alerts = await prisma.alert.findMany({
@@ -54,14 +57,15 @@ export async function GET() {
 
     return NextResponse.json(result);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[alerts]", message);
+    if (err instanceof AdminAuthError) return adminErrorResponse(err);
+    logError("alerts", err);
     return NextResponse.json({ error: "Failed to fetch alerts" }, { status: 500 });
   }
 }
 
 export async function PATCH(request: Request) {
   try {
+    await requireAdmin();
     const body = await request.json();
     const { id, read, replied } = body;
 
@@ -80,8 +84,8 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({ ok: true, alert: updated });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[alerts PATCH]", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    if (err instanceof AdminAuthError) return adminErrorResponse(err);
+    logError("alerts PATCH", err);
+    return NextResponse.json({ error: "internal" }, { status: 500 });
   }
 }

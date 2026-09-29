@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
       const account = await prisma.account.findUnique({ where: { freelancerId }, select: { id: true } });
       if (account) {
         recentVisits = await prisma.pageVisit.findMany({
-          where: { accountId: account.id, visitedAt: { gte: maxCooldownAgo } },
+          where: { accountId: account.id, memberId: member.id, visitedAt: { gte: maxCooldownAgo } },
           select: { pageId: true, visitedAt: true },
         });
       } else {

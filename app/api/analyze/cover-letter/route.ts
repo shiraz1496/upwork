@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { requireDeveloper, authErrorResponse } from "@/lib/me-auth";
+import { AuthError } from "@/lib/member-auth";
+import { logError } from "@/lib/log";
 
 const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
 
@@ -12,7 +15,15 @@ async function callGemini(model: string, apiKey: string, body: unknown): Promise
 }
 
 export async function POST(request: Request) {
+  // AI scoring may require Upwork approval (handover §1, Phase F): off unless explicitly enabled.
+  if (process.env.AI_SCORING_ENABLED !== "true") {
+    return NextResponse.json(
+      { error: "disabled", detail: "AI cover-letter scoring is disabled pending Upwork approval" },
+      { status: 403 },
+    );
+  }
   try {
+    await requireDeveloper();
     const apiKey = process.env.GEMINI_API_KEY || '';  
     if (!apiKey) {
       return NextResponse.json(
@@ -117,12 +128,12 @@ ${coverLetter}`;
           break outer;
         }
         lastErr = `${model} ${res.status}`;
-        console.log("[analyze/cover-letter] retry:", lastErr, "attempt", attempt + 1);
+        logError("analyze/cover-letter retry", lastErr.slice(0, 300), { attempt: attempt + 1 });
       }
     }
 
     if (!res || !res.ok) {
-      console.error("[analyze/cover-letter] all attempts failed:", lastErr.slice(0, 500));
+      logError("analyze/cover-letter all attempts failed", lastErr.slice(0, 300));
       return NextResponse.json(
         { error: "All Gemini attempts failed (overloaded or rate-limited)", detail: lastErr.slice(0, 300) },
         { status: 502 }
@@ -150,8 +161,8 @@ ${coverLetter}`;
 
     return NextResponse.json({ ok: true, analysis });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[analyze/cover-letter]", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    if (err instanceof AuthError) return authErrorResponse(err);
+    logError("analyze/cover-letter", err);
+    return NextResponse.json({ error: "internal" }, { status: 500 });
   }
 }

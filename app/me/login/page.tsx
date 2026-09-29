@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { Spinner } from "@/components/ui/Spinner";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 
 export default function MeLoginPage() {
-  const [token, setToken] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -16,7 +18,7 @@ export default function MeLoginPage() {
       const res = await fetch("/api/me/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({ email, password }),
       });
       if (res.ok) {
         window.location.href = "/me";
@@ -24,7 +26,7 @@ export default function MeLoginPage() {
       }
       const body = await res.json().catch(() => ({}));
       setError(
-        res.status === 401 ? `Token rejected: ${body.error || "unknown"}` : `HTTP ${res.status}`,
+        res.status === 401 ? "Wrong email or password." : body.error || `HTTP ${res.status}`,
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Network error");
@@ -49,8 +51,7 @@ export default function MeLoginPage() {
           <div>
             <h1 className="text-lg font-semibold text-gray-900">Sign in</h1>
             <p className="mt-1 text-sm text-gray-500">
-              Paste your extension token. Your admin gave you the same one you used in the Chrome
-              extension popup.
+              Use the email and password your admin set up for you.
             </p>
           </div>
           {error && (
@@ -59,15 +60,25 @@ export default function MeLoginPage() {
             </div>
           )}
           <label className="block text-sm">
-            <span className="mb-1.5 block font-medium text-gray-700">Extension token</span>
+            <span className="mb-1.5 block font-medium text-gray-700">Email</span>
             <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="ut_..."
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               required
               autoFocus
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              autoComplete="email"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1.5 block font-medium text-gray-700">Password</span>
+            <PasswordInput
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500"
             />
           </label>
           <button
