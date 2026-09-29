@@ -1,5 +1,3 @@
-import { prisma } from "@/lib/prisma";
-import { hashToken } from "@/lib/tokens";
 import type { TeamMember } from "@prisma/client";
 import { logError } from "@/lib/log";
 
@@ -20,40 +18,14 @@ export class ForbiddenError extends Error {
   }
 }
 
-export async function resolveExtensionToken(req: Request): Promise<{
+// Extension-token auth is refused since the extension was shut down (MCP migration, Phase C).
+// Kept as a function so remaining callers (withAttribution routes) fail closed with 401.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function resolveExtensionToken(_req: Request): Promise<{
   member: SafeMember;
   tokenId: string;
 }> {
-  const header = req.headers.get("authorization");
-  if (!header?.startsWith("Bearer ")) {
-    throw new AuthError("missing_header");
-  }
-  const raw = header.slice(7).trim();
-  if (!raw) {
-    throw new AuthError("empty_token");
-  }
-
-  const tokenHash = hashToken(raw);
-  const row = await prisma.extensionToken.findUnique({
-    where: { tokenHash },
-    include: { member: true },
-  });
-
-  if (!row) {
-    throw new AuthError("unknown_token");
-  }
-  if (row.revokedAt) {
-    throw new AuthError("revoked");
-  }
-  if (row.member.status !== "active") {
-    throw new AuthError("member_inactive");
-  }
-
-  prisma.extensionToken
-    .update({ where: { id: row.id }, data: { lastUsedAt: new Date() } })
-    .catch((e) => logError("member-auth lastUsedAt", e));
-
-  return { member: row.member, tokenId: row.id };
+  throw new AuthError("extension_auth_removed");
 }
 
 export function authErrorResponse(err: unknown): Response {

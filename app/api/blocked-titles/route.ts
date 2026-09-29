@@ -1,16 +1,6 @@
-import { prisma } from "@/lib/prisma";
-import { resolveExtensionToken, authErrorResponse } from "@/lib/member-auth";
+import { extensionGone } from "@/lib/deprecated";
 
-export async function GET(req: Request) {
-  try {
-    await resolveExtensionToken(req);
-    const titles = await prisma.blockedTitle.findMany({
-      where: { active: true },
-      orderBy: [{ scope: "asc" }, { createdAt: "asc" }],
-      select: { pattern: true, scope: true },
-    });
-    return Response.json({ titles });
-  } catch (err) {
-    return authErrorResponse(err);
-  }
+// Deprecated: extension ingestion removed (MCP migration, Phase C). Old code is in git history.
+export async function GET() {
+  return extensionGone();
 }

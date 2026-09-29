@@ -1,13 +1,6 @@
-import { NextRequest } from "next/server";
-import { resolveExtensionToken, authErrorResponse } from "@/lib/member-auth";
+import { extensionGone } from "@/lib/deprecated";
 
-export async function POST(req: NextRequest) {
-  try {
-    const { member } = await resolveExtensionToken(req);
-    return Response.json({
-      member: { id: member.id, name: member.name, email: member.email, role: member.role },
-    });
-  } catch (err) {
-    return authErrorResponse(err);
-  }
+// Deprecated: extension ingestion removed (MCP migration, Phase C). Old code is in git history.
+export async function POST() {
+  return extensionGone();
 }

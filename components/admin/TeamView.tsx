@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Spinner } from "@/components/ui/Spinner";
 
+// Extension tokens were retired in the MCP migration (Phase C); the token endpoints return 410.
+const EXTENSION_TOKENS_ENABLED = false;
+
 type Token = {
   id: string;
   label: string | null;
@@ -142,7 +145,7 @@ export function TeamView() {
               <span className="ml-2 text-gray-400 font-normal">({members.length})</span>
             )}
           </h2>
-          <p className="text-sm text-gray-500 mt-0.5">Issue extension tokens, manage status.</p>
+          <p className="text-sm text-gray-500 mt-0.5">Manage team members and status.</p>
         </div>
         <button
           onClick={() => setShowCreate(true)}
@@ -175,8 +178,8 @@ export function TeamView() {
                 <th className="px-5 py-3 font-medium">Email</th>
                 <th className="px-5 py-3 font-medium">Role</th>
                 <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium">Tokens</th>
-                <th className="px-5 py-3"></th>
+                {EXTENSION_TOKENS_ENABLED && <th className="px-5 py-3 font-medium">Tokens</th>}
+                {EXTENSION_TOKENS_ENABLED && <th className="px-5 py-3"></th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -457,17 +460,21 @@ function MemberRow({
             </div>
           )}
         </td>
-        <td className="px-5 py-3 text-gray-700">{member.tokens.length}</td>
-        <td className="px-5 py-3 text-right">
-          <button
-            onClick={onToggleExpand}
-            className="text-sm text-teal-600 hover:text-teal-700 font-medium"
-          >
-            {expanded ? "Hide" : "Manage"} tokens
-          </button>
-        </td>
+        {EXTENSION_TOKENS_ENABLED && (
+          <>
+            <td className="px-5 py-3 text-gray-700">{member.tokens.length}</td>
+            <td className="px-5 py-3 text-right">
+              <button
+                onClick={onToggleExpand}
+                className="text-sm text-teal-600 hover:text-teal-700 font-medium"
+              >
+                {expanded ? "Hide" : "Manage"} tokens
+              </button>
+            </td>
+          </>
+        )}
       </tr>
-      {expanded && (
+      {EXTENSION_TOKENS_ENABLED && expanded && (
         <tr className="bg-gray-50/50">
           <td colSpan={6} className="px-5 py-4">
             <div className="mb-3 flex items-center justify-between">
