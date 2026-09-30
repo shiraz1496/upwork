@@ -3,6 +3,8 @@ import { z } from "zod";
 import { requireDeveloper } from "@/lib/me-auth";
 import { CreateDraftBody, createDraft, listDrafts, serializeDraft } from "@/lib/proposals/drafts";
 import { proposalRouteError, readJson } from "@/lib/proposals/http";
+import { repairProposalRows } from "@/lib/dashboard-feed";
+import { logError } from "@/lib/log";
 
 const StateQuery = z.enum(["DRAFT", "READY", "SUBMISSION_UNVERIFIED", "SUBMITTED_CONFIRMED"]).optional();
 
@@ -12,6 +14,8 @@ export async function GET(req: NextRequest) {
     const member = await requireDeveloper();
     const state = StateQuery.parse(new URL(req.url).searchParams.get("state") ?? undefined);
     const drafts = await listDrafts(member, state);
+    // A recorded submission whose dashboard copy is missing is put back here.
+    await repairProposalRows(member.id).catch((err) => logError("proposal repair", err));
     return Response.json({ proposals: drafts.map(serializeDraft) });
   } catch (err) {
     return proposalRouteError(err);

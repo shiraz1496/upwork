@@ -49,6 +49,26 @@ export function createFakePrisma() {
       connections.set(where.memberId, row);
       return row;
     },
+    // Conditions: a plain value, { not: value } or { in: [...] } per field.
+    updateMany: async ({ where, data }: { where: Record<string, unknown>; data: Row }) => {
+      const fits = (row: Row) =>
+        Object.entries(where).every(([k, cond]) => {
+          const v = row[k] ?? null;
+          if (cond !== null && typeof cond === "object") {
+            const c = cond as { not?: unknown; in?: unknown[] };
+            if ("not" in c) return v !== c.not;
+            if (c.in) return c.in.includes(v);
+          }
+          return v === cond;
+        });
+      let count = 0;
+      for (const [id, row] of connections) {
+        if (!fits(row)) continue;
+        connections.set(id, applyData(row, data));
+        count++;
+      }
+      return { count };
+    },
     update: async ({ where, data }: { where: { memberId: string }; data: Row }) => {
       const existing = connections.get(where.memberId);
       if (!existing) throw new Error("fake prisma: connection not found");
@@ -228,6 +248,8 @@ export function createFakePrisma() {
   // Dashboard tables fed from the new pipeline.
   const proposals = new Map<string, Row>();
   const proposal = {
+    findMany: async ({ where }: { where: { capturedByUserId: string } }) =>
+      [...proposals.values()].filter((p) => p.capturedByUserId === where.capturedByUserId),
     findFirst: async ({ where }: { where: { accountId: string; jobUrl: string; capturedByUserId?: string } }) =>
       [...proposals.values()].find(
         (p) =>

@@ -99,7 +99,11 @@ export async function startAuth(memberId: string, deps?: ConnectionDeps): Promis
   const { getMeta } = resolveDeps(deps);
   const meta = await getMeta();
   const { clientId, redirectUri } = oauthConfig();
-  const { verifier, challenge, state } = createPkce();
+  const pkce = createPkce();
+  const { verifier, challenge } = pkce;
+  // The state carries the time the attempt started, so its lifetime does not depend on
+  // anything else that later writes to this row.
+  const state = `${Date.now().toString(36)}.${pkce.state}`;
 
   await prisma.upworkConnection.upsert({
     where: { memberId },
@@ -135,11 +139,16 @@ export async function completeAuth(
     throw new OAuthStateMismatch();
   }
   const verifier = decryptSecret(row.oauthCodeVerifier);
-  const expired = Date.now() - row.updatedAt.getTime() > OAUTH_STATE_TTL_MS;
+  const startedAt = parseInt(row.oauthState.split(".")[0], 36);
+  const expired = !Number.isFinite(startedAt) || Date.now() - startedAt > OAUTH_STATE_TTL_MS;
   // A sign-in attempt is single-use: clear it before talking to Upwork, so neither a
-  // failure further down nor a replayed callback can use it again.
-  await prisma.upworkConnection.update({ where: { memberId }, data: { oauthState: null, oauthCodeVerifier: null } });
-  if (expired) throw new OAuthStateMismatch();
+  // failure further down nor a replayed callback can use it again. The clear names the
+  // state it expects, so of two callbacks arriving together only one goes on.
+  const claimed = await prisma.upworkConnection.updateMany({
+    where: { memberId, oauthState: row.oauthState },
+    data: { oauthState: null, oauthCodeVerifier: null },
+  });
+  if (claimed.count === 0 || expired) throw new OAuthStateMismatch();
 
   const meta = await getMeta();
   const tokens = await exchangeCode(meta, params.code, verifier, fetchImpl);
@@ -149,6 +158,13 @@ export async function completeAuth(
   // (not even one from an earlier connection).
   const reject = async (lastError: string) => {
     await revokeAll(meta, tokens, fetchImpl);
+    if (row.accessTokenEnc) {
+      await revokeAll(
+        meta,
+        { accessToken: decryptSecret(row.accessTokenEnc), refreshToken: row.refreshTokenEnc ? decryptSecret(row.refreshTokenEnc) : null },
+        fetchImpl,
+      ).catch((err) => logError("upwork revoke", err));
+    }
     await prisma.upworkConnection.update({
       where: { memberId },
       data: { status: "error", lastError, accessTokenEnc: null, refreshTokenEnc: null, tokenExpiresAt: null },
@@ -173,6 +189,12 @@ export async function completeAuth(
     await reject("This Upwork account is already connected by another team member");
     throw err;
   }
+  // The account is free (nobody else is connected to it). A member who used it before and
+  // is no longer connected gives up the claim, so two members never resolve to one account.
+  await prisma.upworkConnection.updateMany({
+    where: { upworkAccountId: identity.upworkAccountId, memberId: { not: memberId }, status: { not: "connected" } },
+    data: { upworkAccountId: null, accountName: null },
+  });
 
   return prisma.upworkConnection.update({
     where: { memberId },
@@ -222,15 +244,23 @@ export async function refreshIfNeeded(
   const { fetchImpl, getMeta } = resolveDeps(deps);
   try {
     const tokens = await refreshTokens(await getMeta(), decryptSecret(conn.refreshTokenEnc), fetchImpl);
-    await prisma.upworkConnection.update({
-      where: { memberId: conn.memberId },
+    // Upwork accepted the refresh, so the connection is good — say so, in case another
+    // request of this member lost the race for the single-use refresh token and marked it
+    // revoked a moment ago. A connection the bidder disconnected meanwhile stays that way.
+    const saved = await prisma.upworkConnection.updateMany({
+      where: { memberId: conn.memberId, status: { not: "disconnected" } },
       data: {
+        status: "connected",
         accessTokenEnc: encryptSecret(tokens.accessToken),
         refreshTokenEnc: tokens.refreshToken ? encryptSecret(tokens.refreshToken) : conn.refreshTokenEnc,
         tokenExpiresAt: tokens.expiresAt,
         lastError: null,
       },
     });
+    if (saved.count === 0) {
+      await revokeAll(await getMeta(), tokens, fetchImpl).catch((err) => logError("upwork revoke", err));
+      throw new NotConnected();
+    }
     return tokens.accessToken;
   } catch (err) {
     if (err instanceof Revoked || err instanceof ConnectionExpired) {
@@ -285,6 +315,13 @@ export async function disconnect(memberId: string, deps?: ConnectionDeps) {
   });
 }
 
+// "Last refreshed": the member's proposal outcomes (submitted / offered / hired) were read
+// from Upwork just now. The dashboards treat "hired" as known only from this moment — a
+// job search or a profile read says nothing about hires.
+export async function markOutcomesRead(memberId: string) {
+  await prisma.upworkConnection.update({ where: { memberId }, data: { lastSyncedAt: new Date() } });
+}
+
 // The single gate for live MCP calls: flag → own connection → fresh token → client → fn.
 // `orgUid` is the member's own freelancer account; every Upwork tool call needs it.
 export async function withMcp<T>(
@@ -313,7 +350,7 @@ export async function withMcp<T>(
       if (!(err instanceof Revoked) || !conn.refreshTokenEnc) throw err;
       result = await run(await refreshIfNeeded(conn, deps, { force: true }));
     }
-    await prisma.upworkConnection.update({ where: { memberId }, data: { lastSyncedAt: new Date(), lastError: null } });
+    await prisma.upworkConnection.update({ where: { memberId }, data: { lastError: null } });
     return result;
   } catch (err) {
     if (err instanceof Revoked) await markStatus(memberId, "revoked", "Upwork access was revoked — reconnect");

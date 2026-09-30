@@ -6,7 +6,7 @@ import { hashPassword } from "@/lib/crypto";
 
 const PatchBody = z.object({
   name: z.string().min(1).max(120).optional(),
-  email: z.string().email().optional(),
+  email: z.string().trim().toLowerCase().email().optional(),
   role: z.enum(["admin", "bidder"]).optional(),
   status: z.enum(["active", "inactive"]).optional(),
   password: z.string().min(8).max(200).optional(),
@@ -22,6 +22,14 @@ export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/admin/team
     if (!before) return Response.json({ error: "not found" }, { status: 404 });
 
     const { password, ...fields } = body;
+
+    if (fields.email !== undefined) {
+      const taken = await prisma.teamMember.findFirst({
+        where: { email: { equals: fields.email, mode: "insensitive" }, id: { not: id } },
+        select: { id: true },
+      });
+      if (taken) return Response.json({ error: "email_taken", detail: "A team member with this email already exists." }, { status: 409 });
+    }
 
     // Refuse a change that would leave nobody able to administer the team.
     const stopsBeingActiveAdmin =

@@ -66,7 +66,10 @@ export async function syncClientResponses(member: Member, deps?: ConnectionDeps)
   });
   const draftByRoom = new Map<string, string>();
   let linkingAvailable = true;
-  if (clientRooms.length > 0 && drafts.length > 0) {
+  // Interview rooms count whoever wrote last: the client opened an interview even if the
+  // bidder has already answered it.
+  const interviewRooms = rooms.data.filter((r) => r.kind === "interview");
+  if ((clientRooms.length > 0 || interviewRooms.length > 0) && drafts.length > 0) {
     try {
       const links = await proposalsForJobs(member.id, drafts.map((d) => jobIdKey(d.upworkJobId)), { withRooms: true }, deps);
       if (links.status === "ok") {
@@ -132,6 +135,12 @@ export async function syncClientResponses(member: Member, deps?: ConnectionDeps)
       jobTitle: drafts.find((d) => d.id === draftId)?.jobTitle ?? null,
     });
     if (draftId && room.kind === "interview") await markProposalInterviewing(draftId);
+  }
+  // Every interview room Upwork links to a recorded proposal marks it as interviewed —
+  // including rooms skipped above because the bidder wrote last (no pending reply there).
+  for (const room of interviewRooms) {
+    const draftId = draftByRoom.get(room.upworkThreadId);
+    if (draftId) await markProposalInterviewing(draftId);
   }
   return {
     status: "ok",

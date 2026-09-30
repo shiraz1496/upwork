@@ -27,7 +27,8 @@ export async function GET() {
 
 const CreateBody = z.object({
   name: z.string().min(1).max(120),
-  email: z.string().email(),
+  // Stored lower-case: login ignores case, so "Bob@x.com" and "bob@x.com" are one person.
+  email: z.string().trim().toLowerCase().email(),
   role: z.enum(["admin", "bidder"]).default("bidder"),
 });
 
@@ -35,6 +36,13 @@ export async function POST(req: NextRequest) {
   try {
     await requireAdmin();
     const body = CreateBody.parse(await req.json());
+
+    // Older rows may be stored with capitals, which the unique index does not catch.
+    const taken = await prisma.teamMember.findFirst({
+      where: { email: { equals: body.email, mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (taken) return Response.json({ error: "email_taken", detail: "A team member with this email already exists." }, { status: 409 });
 
     const member = await prisma.teamMember.create({ data: body });
     return Response.json({ member });

@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 
 // errorCode is the API's machine-readable code (e.g. "not_connected"); error is the text to show.
-export type LoadState<T> = { data: T | null; error: string | null; errorCode: string | null; loading: boolean };
+// `stale` is true while the data shown still belongs to an earlier request (a reload or a
+// changed url is on its way).
+export type LoadState<T> = { data: T | null; error: string | null; errorCode: string | null; loading: boolean; stale?: boolean };
 
 function errorText(body: unknown, status: number): string {
   const b = body as { detail?: string; error?: string } | null;
@@ -13,6 +15,8 @@ function errorText(body: unknown, status: number): string {
 // GET a developer endpoint. Re-runs when `url` or `reloadKey` changes; 401 → login page.
 export function useLoad<T>(url: string | null, reloadKey = 0): LoadState<T> {
   const [state, setState] = useState<LoadState<T>>({ data: null, error: null, errorCode: null, loading: true });
+  const want = `${url}#${reloadKey}`;
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   useEffect(() => {
     if (!url) return;
     let ignore = false;
@@ -24,6 +28,7 @@ export function useLoad<T>(url: string | null, reloadKey = 0): LoadState<T> {
         }
         const body = await res.json().catch(() => null);
         if (ignore) return;
+        setLoadedFor(`${url}#${reloadKey}`);
         setState(
           res.ok
             ? { data: body as T, error: null, errorCode: null, loading: false }
@@ -36,13 +41,15 @@ export function useLoad<T>(url: string | null, reloadKey = 0): LoadState<T> {
         );
       })
       .catch((e: unknown) => {
-        if (!ignore) setState({ data: null, error: e instanceof Error ? e.message : "Network error", errorCode: null, loading: false });
+        if (ignore) return;
+        setLoadedFor(`${url}#${reloadKey}`);
+        setState({ data: null, error: e instanceof Error ? e.message : "Network error", errorCode: null, loading: false });
       });
     return () => {
       ignore = true;
     };
   }, [url, reloadKey]);
-  return state;
+  return { ...state, stale: loadedFor !== want };
 }
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string };

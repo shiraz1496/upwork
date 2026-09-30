@@ -81,7 +81,7 @@ export function JobsView({ onStartProposal, onGoToUpwork }: { onStartProposal: (
 
   const params = new URLSearchParams({ mode: query.mode });
   if (query.mode === "search" && query.title) params.set("title", query.title);
-  const { data, error, errorCode, loading } = useLoad<JobsResponse>(`/api/me/jobs?${params}`, reloadKey);
+  const { data, error, errorCode, stale } = useLoad<JobsResponse>(`/api/me/jobs?${params}`, reloadKey);
 
   function run(next: Mode) {
     setMode(next);
@@ -140,7 +140,11 @@ export function JobsView({ onStartProposal, onGoToUpwork }: { onStartProposal: (
         )}
       </div>
 
-      {loading && !data && !error ? (
+      {/* While a list is loading, or Search is picked but not yet run, the previous list is
+          not shown under the newly highlighted button. */}
+      {mode === "search" && query.mode !== "search" ? (
+        <div className="py-6 text-sm text-gray-500">Type some words from the job title and press Search.</div>
+      ) : stale ? (
         <div className="py-6 text-sm text-gray-500">Loading jobs…</div>
       ) : notConnected ? (
         <div className={`${card} p-6 text-sm text-gray-600`}>

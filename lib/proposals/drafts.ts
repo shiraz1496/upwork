@@ -11,7 +11,8 @@ import { applyProposalOutcome, ensureProposalRow, feedProposalFromDraft, memberA
 import { applyTransition, isDeletable, isEditable, InvalidTransition } from "@/lib/proposals/state";
 import { jobIdFromUrl, jobIdKey } from "@/lib/upwork/ids";
 import { proposalsForJobs } from "@/lib/upwork/proposals";
-import type { ConnectionDeps } from "@/lib/upwork/connection";
+import { markOutcomesRead, type ConnectionDeps } from "@/lib/upwork/connection";
+import { logError } from "@/lib/log";
 
 export class DraftError extends Error {
   constructor(
@@ -26,7 +27,8 @@ export class DraftError extends Error {
 const money = z
   .string()
   .trim()
-  .regex(/^\d{1,7}(\.\d{1,2})?$/, "must be a number like 25 or 25.50");
+  .regex(/^\d{1,7}(\.\d{1,2})?$/, "must be a number like 25 or 25.50")
+  .refine((v) => Number(v) > 0, "must be more than 0");
 
 // The job link is shown to the developer for manual submission — only real Upwork links.
 const upworkUrl = z
@@ -242,7 +244,14 @@ export async function confirmSubmission(member: Member, id: string, note?: strin
   // Older drafts may have no account yet; the dashboards need one to show the proposal.
   const extra = draft.accountId ? {} : { accountId: (await memberAccount(member)).id };
   const updated = await transition(member, draft, "SUBMISSION_UNVERIFIED", { note }, extra);
-  await feedProposalFromDraft(updated);
+  // The submission is recorded at this point. If the dashboard copy fails, the bidder must
+  // not be told the confirm failed (a retry would be refused): it is logged and repaired
+  // the next time their proposals are listed (repairProposalRows).
+  try {
+    await feedProposalFromDraft(updated);
+  } catch (err) {
+    logError("proposal feed", err);
+  }
   return updated;
 }
 
@@ -293,6 +302,7 @@ export async function syncProposalOutcomes(member: Member, deps?: ConnectionDeps
   });
   const result = await proposalsForJobs(member.id, drafts.map((d) => jobIdKey(d.upworkJobId)), {}, deps);
   if (result.status === "disabled") return { status: "disabled" as const };
+  await markOutcomesRead(member.id);
   if (result.provenance !== "MCP_VERIFIED") return { status: "ok" as const, provenance: "MOCK" as const, verified: 0, found: 0 };
 
   let verified = 0;

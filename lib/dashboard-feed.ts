@@ -96,6 +96,24 @@ export async function ensureProposalRow(draft: ProposalDraft) {
   if (!(await findProposalRow(draft))) await feedProposalFromDraft(draft);
 }
 
+// Recreates dashboard rows that are missing for the member's recorded submissions (a feed
+// write that failed right after a confirm). Needs no Upwork connection. Two queries when
+// nothing is missing.
+export async function repairProposalRows(memberId: string) {
+  const drafts = await prisma.proposalDraft.findMany({
+    where: { memberId, state: { in: ["SUBMISSION_UNVERIFIED", "SUBMITTED_CONFIRMED"] } },
+  });
+  if (drafts.length === 0) return;
+  const rows = await prisma.proposal.findMany({
+    where: { capturedByUserId: memberId },
+    select: { accountId: true, jobUrl: true },
+  });
+  const have = new Set(rows.map((r) => `${r.accountId}|${r.jobUrl}`));
+  for (const d of drafts) {
+    if (d.accountId && !have.has(`${d.accountId}|${d.jobUrl}`)) await feedProposalFromDraft(d);
+  }
+}
+
 function proposalStatus(d: ProposalDraft): string {
   return d.state === "SUBMITTED_CONFIRMED" ? "Submitted (verified by Upwork)" : "Submitted (self-reported)";
 }
@@ -236,6 +254,9 @@ export async function applyProposalOutcome(draft: ProposalDraft, found: Proposal
     case "Declined":
     case "Withdrawn":
     case "Archived":
+      // A proposal that was hired stays hired: once the contract ends Upwork lists it
+      // under a closed status, which must not erase the hire from the dashboards.
+      if (row.hiredAt) return;
       data = { status: verified(found.statusLabel ?? found.status) };
       break;
     default:

@@ -35,8 +35,11 @@ async function computeStats(memberId: string, fromDate: Date, toDate: Date) {
           proposalWhere,
           {
             OR: [
+              // Same rule as the Overview (lib/overview-aggregation.ts): a hired proposal
+              // sits in "Active" and was interviewed on the way there.
               { section: { contains: "nterview", mode: "insensitive" } },
               { section: { contains: "offer", mode: "insensitive" } },
+              { section: { contains: "active", mode: "insensitive" } },
             ],
           },
         ],
@@ -48,6 +51,7 @@ async function computeStats(memberId: string, fromDate: Date, toDate: Date) {
           proposalWhere,
           {
             OR: [
+              { hiredAt: { not: null } },
               { status: { contains: "hired", mode: "insensitive" } },
               { section: { contains: "hired", mode: "insensitive" } },
             ],

@@ -144,14 +144,15 @@ describe("withMcp + isolation", () => {
     await expect(withMcp("nobody", async () => 1, deps())).rejects.toBeInstanceOf(NotConnected);
   });
 
-  it("runs the call with the member's own token and stamps lastSyncedAt", async () => {
+  it("runs the call with the member's own token; an ordinary call is not a refresh", async () => {
     await connect("m1");
     const seen: string[] = [];
     const d = deps({ transport: mockTransport({ onCall: (_m, _p, h) => seen.push(h.Authorization) }) });
     const got = await withMcp("m1", async (c, orgUid) => ({ tool: await c.resolveTool("find_jobs"), orgUid }), d);
     expect(got).toEqual({ tool: "upwork__find_jobs", orgUid: MOCK_ORG_UID });
     expect(new Set(seen)).toEqual(new Set(["Bearer mock-access-1"]));
-    expect(fake.db._connections.get("m1")!.lastSyncedAt).toBeInstanceOf(Date);
+    // lastSyncedAt means "proposal outcomes were read" (it decides whether hired is known).
+    expect(fake.db._connections.get("m1")!.lastSyncedAt).toBeNull();
   });
 
   it("assertOwnConnection refuses another member's connection", () => {
@@ -192,8 +193,10 @@ describe("sign-in attempt lifetime", () => {
     const d = deps();
     const { authorizeUrl } = await startAuth("m1", d);
     const state = new URL(authorizeUrl).searchParams.get("state")!;
-    fake.db._connections.get("m1")!.updatedAt = new Date(Date.now() - 11 * 60_000);
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 11 * 60_000);
     await expect(completeAuth("m1", { code: "c", state }, d)).rejects.toBeInstanceOf(OAuthStateMismatch);
+    vi.useRealTimers();
     expect(fake.db._connections.get("m1")!).toMatchObject({ oauthState: null, oauthCodeVerifier: null, accessTokenEnc: null });
   });
 
@@ -207,7 +210,7 @@ describe("sign-in attempt lifetime", () => {
 });
 
 describe("a failed connect leaves nothing behind", () => {
-  it("revokes BOTH new tokens at Upwork and keeps no token — not even an older one", async () => {
+  it("revokes the new tokens AND the earlier connection's tokens at Upwork, and keeps none", async () => {
     await connect("m1"); // an earlier, healthy connection
     const revoked: string[] = [];
     const inner = mockOAuthFetch();
@@ -221,7 +224,9 @@ describe("a failed connect leaves nothing behind", () => {
     const { authorizeUrl } = await startAuth("m1", d);
     await expect(completeAuth("m1", { code: "c", state: new URL(authorizeUrl).searchParams.get("state")! }, d)).rejects.toBeInstanceOf(NoFreelancerAccount);
 
-    expect(revoked).toEqual(["mock-refresh-1", "mock-access-1"]); // refresh token first
+    // New pair first (refresh token before access token), then the earlier connection's
+    // pair. Both sign-ins used a fresh fake token server, hence the same names twice.
+    expect(revoked).toEqual(["mock-refresh-1", "mock-access-1", "mock-refresh-1", "mock-access-1"]);
     expect(fake.db._connections.get("m1")!).toMatchObject({ status: "error", accessTokenEnc: null, refreshTokenEnc: null, tokenExpiresAt: null });
   });
 

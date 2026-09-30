@@ -7,14 +7,17 @@ import { McpProtocolError, RateLimited, Revoked, ToolNotAllowed, ToolUnavailable
 
 // The ONLY Upwork tools this app may call — all read-only. Anything that drafts, submits,
 // sends or confirms is deliberately absent, so such a call cannot be added by accident.
-export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  "list_accounts",
-  "find_jobs",
-  "get_messages",
-  "list_contracts",
-  "list_freelancer_proposals",
-  "get_profile",
-]);
+// Each tool is limited to the read actions this app uses: a tool name alone would not stop
+// an action of that tool that changes something.
+export const READ_ONLY_ACTIONS: Readonly<Record<string, readonly string[]>> = {
+  list_accounts: [], // takes no action
+  find_jobs: ["search", "smart_search"],
+  get_messages: ["list_rooms"],
+  list_contracts: ["search"],
+  list_freelancer_proposals: ["list", "get"],
+  get_profile: ["get", "connects_balance"],
+};
+export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set(Object.keys(READ_ONLY_ACTIONS));
 
 const REQUEST_TIMEOUT_MS = 20_000;
 
@@ -175,6 +178,10 @@ export class McpClient {
 
   async callTool(baseName: string, args: Record<string, unknown> = {}): Promise<McpToolResult> {
     if (!READ_ONLY_TOOLS.has(baseName)) throw new ToolNotAllowed(baseName);
+    const action = args.action;
+    if (action !== undefined && !(typeof action === "string" && READ_ONLY_ACTIONS[baseName].includes(action))) {
+      throw new ToolNotAllowed(`${baseName}:${String(action)}`);
+    }
     const name = await this.resolveTool(baseName);
     const result = (await this.rpc("tools/call", { name, arguments: args })) as McpToolResult;
     if (result?.isError) throw new McpProtocolError(`Tool ${baseName} returned an error`);

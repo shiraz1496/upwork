@@ -8,7 +8,7 @@ Branch: `feat/mcp-migration` (base: `origin/main` @ `9fa091e`, foundation commit
 - **All phases A–J are done and on this branch.** A+B `2b35413`, C `d08c9a2`, D–F `049d93f`, G–J in the commit after that.
 - `UPWORK_MCP_ENABLED` is **off**. Our app has never been connected to a real Upwork account and is not registered with Upwork (the handover forbids both before approval). `scripts/register-upwork-client.mjs` is written, only run as a dry run.
 - Nothing is deployed. Staging and production databases are untouched; the live site still runs `main`.
-- Gates: `npm run test` 373 passing · `npm run lint` 0 / 0 · `npx tsc --noEmit` clean · `npm run build` ok.
+- Gates: `npm run test` 388 passing · `npm run lint` 0 / 0 · `npx tsc --noEmit` clean · `npm run build` ok.
 
 ## Continue from here
 1. **Waiting on Upwork:** a support request asks whether our hosted app may connect to the MCP server, whether data may be stored and for how long, and whether scheduled refresh is allowed. Nothing below starts before the answer.
@@ -322,6 +322,32 @@ Tests: **372 passing in 17 files** (was 241). New: every API route called with n
 
 Not fixed (need a schema change or infrastructure) → [Known limits](#known-limits): login rate limiting, unique indexes for the remaining check-then-create races, database TLS verification, password echo in `set-password.mjs`, scrypt cost, old accounts vs new accounts.
 
+### 2026-09-30 — review of the pushed branch, and fixes
+Two independent read-throughs of the whole branch (one on login / permissions / tokens, one on the data flow). No way was found for one bidder to reach another's data, and no token reaches a log or a response. Each issue below was first reproduced (a failing test in `tests/review-fixes.test.ts`, or a call against the local test database), then fixed.
+
+| Issue (as reproduced) | Fix |
+|---|---|
+| "Hired" became a real-looking `0` after *any* Upwork call (a job search stamped `lastSyncedAt`) | `lastSyncedAt` is now set only when proposal outcomes were read (`markOutcomesRead`); until then hired stays "—" |
+| An interview the bidder had already answered was never counted as interviewed | every interview room Upwork links to a recorded proposal marks it interviewed; no reply or alert is stored for it |
+| Bidder week comparison disagreed with the Overview (hired proposal not "interviewed"; hired lost when Upwork later listed it Archived) | the comparison uses the Overview's rules; a hired row keeps its hired status |
+| After bidder A disconnected, bidder B could connect the same Upwork account and both resolved to one account row | connecting releases the claim of members who are no longer connected; A goes back to an own placeholder |
+| A dashboard write failing right after confirm gave a 500 with the submission already recorded, and was never repaired with the flag off | confirm no longer fails for it; the row is put back when the bidder's proposals are listed (`repairProposalRows`) |
+| A token refresh racing another request could leave a good connection "revoked", or write tokens onto a connection disconnected meanwhile | a successful refresh sets "connected"; a disconnected one is left alone and the new tokens are revoked |
+| Sign-in attempt lifetime was measured from the row's last write, and two callbacks at once could both redeem it | the state carries its own start time (10 minutes), and is claimed atomically |
+| A failed reconnect did not revoke the earlier connection's tokens at Upwork | they are revoked too |
+| Two emails differing only in capitals could both be created; one could then not log in | emails are stored lower-case; a duplicate in any capitalisation is refused (409 `email_taken`) |
+| A bid of `0` was accepted | must be more than 0 |
+| The read-only allow-list checked the tool name only | it also checks the action (`READ_ONLY_ACTIONS`) |
+| Find jobs kept the previous list under a newly picked button | shows a hint / loading line until the new list is in |
+
+Looked at and deliberately not changed:
+- **Old-style job links (`~01…`)**: a proposal made from one cannot be matched to Upwork's list (Upwork's list carries the numeric id). Could not be checked against real data; current job links are all `~02…`. Listed under Known limits.
+- **Disconnect with the integration switched off** wipes the tokens locally but does not call Upwork to revoke them: with the switch off the app makes no call to Upwork at all.
+- **Deactivating a bidder** leaves their Upwork connection as it is: the handover says an admin must not change a bidder's connection (§10 rule 2). The member cannot log in, so the tokens cannot be used.
+- **Week comparison ignores the account picker** and **a manual "Unlink" of a reply Upwork itself links is re-linked on refresh**: both as before / as intended.
+
+After the fixes: **388 tests passing**, lint 0 / 0, type-check clean, build ok, end-to-end script **237 / 237** on a fresh local database.
+
 ### 2026-09-30 — "does it make sense" pass: five small changes, and where the handover is out of date
 Went through the finished work screen by screen. Changed (all small):
 1. **Disconnecting Upwork no longer signs the bidder out.** The handover (§10.4) said to end the session; but the login to this app is email + password and has nothing to do with the Upwork link, so the bidder was thrown out for no reason. Tokens are still revoked and wiped.
@@ -441,6 +467,11 @@ npm run dev                     # uses .env.local (local DB) over .env
   contract ends, Upwork appears to move the proposal to `Archived`.
 - Upwork's contract list (`list_contracts`) would catch it, but contracts carry **no job id**
   to match them to a proposal (only title + offer id), so it is not used for this.
+
+### Old-style job links
+- A proposal created from an old-style job link (`…_~01<letters and digits>`) cannot be
+  verified or get an outcome: Upwork's proposal list identifies the job by its numeric id.
+  Current Upwork job links (`~02<digits>`) are not affected.
 
 ### Job review
 - Upwork returns **at most 10 jobs per page**; the list has no "next page" yet.
