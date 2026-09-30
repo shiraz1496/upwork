@@ -17,7 +17,8 @@
     "db:remove-bad-titles": "sh -c 'set -a && source .env && set +a && DIRECT_URL=$DIRECT_URL node scripts/remove-bad-title-proposals.mjs'",
     "db:seed-blocked-titles": "sh -c 'set -a && source .env && set +a && DIRECT_URL=$DIRECT_URL node scripts/seed-blocked-titles.mjs'",
     "db:drop-snapshot": "sh -c 'set -a && source .env && set +a && DATABASE_URL=$DATABASE_URL npx prisma db execute --file scripts/drop-snapshot-table.sql'",
-    "ext": "echo 'DEPRECATED: extension ingestion was removed in the MCP migration; this build is not deployed.' && ./extension/build.sh"
+    "ext": "echo 'DEPRECATED: extension ingestion was removed in the MCP migration; this build is not deployed.' && ./extension/build.sh",
+    "test": "vitest run"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -42,6 +43,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   }
 }
