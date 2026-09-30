@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logError } from "@/lib/log";
 import { requireAdmin, adminErrorResponse, AdminAuthError } from "@/lib/admin-auth";
+import { accountsWithNewPipelineData, submissionProvenanceByJobUrl, unavailableMetrics, upworkIdsWithHiredSource } from "@/lib/dashboard-feed";
 
 export async function GET() {
   try {
@@ -26,8 +27,15 @@ export async function GET() {
       },
     });
 
+    const [newPipeline, provenance, hiredSource] = await Promise.all([
+      accountsWithNewPipelineData(),
+      submissionProvenanceByJobUrl({}),
+      upworkIdsWithHiredSource(accounts.map((a) => a.freelancerId)),
+    ]);
+
     const result = accounts.map((account) => {
       return {
+        metricsUnavailable: newPipeline.has(account.id) ? unavailableMetrics(hiredSource.has(account.freelancerId)) : [],
         id: account.id,
         freelancerId: account.freelancerId,
         name: account.name,
@@ -38,6 +46,7 @@ export async function GET() {
         createdAt: account.createdAt,
         proposals: account.proposals.map((p) => ({
           id: p.id,
+          provenance: provenance.get(`${account.id}|${p.jobUrl}`) ?? null,
           jobTitle: p.jobTitle,
           jobUrl: p.jobUrl,
           jobCategory: p.jobCategory,

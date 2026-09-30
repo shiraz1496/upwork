@@ -24,15 +24,21 @@ export async function GET() {
 
     const now = Date.now();
     const maxCooldownAgo = new Date(now - maxCooldownMs);
+    const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
 
     const stats = await Promise.all(
       members.map(async (m) => {
         const [
+          jobsReviewed7d,
+          jobsReviewedTotal,
           proposalsCount,
           alertsCount,
           recentVisits,
           latestCapture,
         ] = await Promise.all([
+          // Jobs the bidder opened inside this app (recorded here, not on upwork.com).
+          prisma.jobReviewLog.count({ where: { memberId: m.id, reviewedAt: { gte: sevenDaysAgo } } }),
+          prisma.jobReviewLog.count({ where: { memberId: m.id } }),
           prisma.proposal.count({ where: { capturedByUserId: m.id } }),
           prisma.alert.count({ where: { capturedByUserId: m.id } }),
           prisma.pageVisit.findMany({
@@ -70,6 +76,8 @@ export async function GET() {
             proposals: proposalsCount,
             alerts: alertsCount,
           },
+          jobsReviewed: { last7Days: jobsReviewed7d, total: jobsReviewedTotal },
+          // Legacy (extension-era) field, kept so the response shape does not change.
           coverage: {
             referenced: totalPages,
             captured: coverageCaptured,

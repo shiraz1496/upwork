@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Spinner } from "@/components/ui/Spinner";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 
 // Extension tokens were retired in the MCP migration (Phase C); the token endpoints return 410.
 const EXTENSION_TOKENS_ENABLED = false;
@@ -20,6 +21,8 @@ type Member = {
   role: "admin" | "bidder";
   status: "active" | "inactive";
   createdAt: string;
+  passwordSetAt: string | null;
+  upworkConnection: { status: string; accountName: string | null; lastSyncedAt: string | null } | null;
   tokens: Token[];
   _count: { tokens: number };
 };
@@ -43,6 +46,37 @@ export function TeamView() {
 
   const [revokeTarget, setRevokeTarget] = useState<Token | null>(null);
   const [revoking, setRevoking] = useState(false);
+
+  const [passwordFor, setPasswordFor] = useState<Member | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  async function savePassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!passwordFor) return;
+    if (newPassword.length < 8) {
+      setPasswordError("Use at least 8 characters.");
+      return;
+    }
+    setSavingPassword(true);
+    setPasswordError(null);
+    try {
+      const res = await fetch(`/api/admin/team/${passwordFor.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: newPassword }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setPasswordFor(null);
+      setNewPassword("");
+      await loadMembers();
+    } catch (err) {
+      setPasswordError(err instanceof Error ? err.message : "Could not set the password");
+    } finally {
+      setSavingPassword(false);
+    }
+  }
 
   const loadMembers = useCallback(async () => {
     try {
@@ -178,6 +212,8 @@ export function TeamView() {
                 <th className="px-5 py-3 font-medium">Email</th>
                 <th className="px-5 py-3 font-medium">Role</th>
                 <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium">Login</th>
+                <th className="px-5 py-3 font-medium">Upwork</th>
                 {EXTENSION_TOKENS_ENABLED && <th className="px-5 py-3 font-medium">Tokens</th>}
                 {EXTENSION_TOKENS_ENABLED && <th className="px-5 py-3"></th>}
               </tr>
@@ -192,12 +228,62 @@ export function TeamView() {
                   onToggleStatus={() => toggleStatus(m)}
                   onIssueToken={() => setIssuingFor(m)}
                   onRevokeToken={setRevokeTarget}
+                  onSetPassword={() => {
+                    setPasswordFor(m);
+                    setNewPassword("");
+                    setPasswordError(null);
+                  }}
                 />
               ))}
             </tbody>
           </table>
         </div>
       )}
+
+      <Modal
+        open={passwordFor !== null}
+        onClose={() => setPasswordFor(null)}
+        title={`${passwordFor?.passwordSetAt ? "Change" : "Set"} password for ${passwordFor?.name ?? ""}`}
+      >
+        <form onSubmit={savePassword} className="space-y-4">
+          <p className="text-sm text-gray-500">
+            {passwordFor?.name} signs in with {passwordFor?.email} and this password. Setting it signs them out
+            everywhere. Share it with them privately.
+          </p>
+          {passwordError && (
+            <div className="rounded-lg bg-rose-50 border border-rose-100 p-3 text-sm text-rose-700">{passwordError}</div>
+          )}
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-gray-700">New password</span>
+            <PasswordInput
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+              minLength={8}
+              autoComplete="new-password"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+            <span className="mt-1 block text-xs text-gray-400">At least 8 characters.</span>
+          </label>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setPasswordFor(null)}
+              className="px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50 shadow-sm transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={savingPassword}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+            >
+              {savingPassword && <Spinner />}
+              {savingPassword ? "Saving…" : "Save password"}
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Add member">
         <form onSubmit={createMember} className="space-y-4">
@@ -347,6 +433,7 @@ function MemberRow({
   onToggleStatus,
   onIssueToken,
   onRevokeToken,
+  onSetPassword,
 }: {
   member: Member;
   expanded: boolean;
@@ -354,6 +441,7 @@ function MemberRow({
   onToggleStatus: () => Promise<void>;
   onIssueToken: () => void;
   onRevokeToken: (token: Token) => void;
+  onSetPassword: () => void;
 }) {
   const [statusOpen, setStatusOpen] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
@@ -460,6 +548,29 @@ function MemberRow({
             </div>
           )}
         </td>
+        <td className="px-5 py-3">
+          <div className="flex items-center gap-2">
+            <span className={`text-xs ${member.passwordSetAt ? "text-gray-600" : "text-amber-700 font-medium"}`}>
+              {member.passwordSetAt ? "Password set" : "No password"}
+            </span>
+            <button onClick={onSetPassword} className="text-xs text-teal-600 hover:text-teal-700 font-medium">
+              {member.passwordSetAt ? "Change" : "Set"}
+            </button>
+          </div>
+        </td>
+        <td className="px-5 py-3 text-xs">
+          {member.role !== "bidder" ? (
+            <span className="text-gray-300">—</span>
+          ) : member.upworkConnection?.status === "connected" ? (
+            <span className="text-green-700" title={member.upworkConnection.accountName ?? undefined}>
+              Connected{member.upworkConnection.accountName ? ` · ${member.upworkConnection.accountName}` : ""}
+            </span>
+          ) : member.upworkConnection && member.upworkConnection.status !== "disconnected" ? (
+            <span className="text-amber-700 capitalize">{member.upworkConnection.status}</span>
+          ) : (
+            <span className="text-gray-400">Not connected</span>
+          )}
+        </td>
         {EXTENSION_TOKENS_ENABLED && (
           <>
             <td className="px-5 py-3 text-gray-700">{member.tokens.length}</td>
@@ -476,7 +587,7 @@ function MemberRow({
       </tr>
       {EXTENSION_TOKENS_ENABLED && expanded && (
         <tr className="bg-gray-50/50">
-          <td colSpan={6} className="px-5 py-4">
+          <td colSpan={8} className="px-5 py-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-medium text-gray-900">Active tokens</h3>
               <button

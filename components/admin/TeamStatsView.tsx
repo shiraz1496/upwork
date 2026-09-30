@@ -10,6 +10,7 @@ type MemberStats = {
   role: "admin" | "bidder";
   status: "active" | "inactive";
   captured: { proposals: number; alerts: number };
+  jobsReviewed: { last7Days: number; total: number };
   coverage: { referenced: number; captured: number; pct: number };
   latestCaptureAt: string | null;
 };
@@ -40,6 +41,7 @@ export function TeamStatsView() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loads this view's data on mount (existing pattern)
     load();
   }, []);
 
@@ -120,21 +122,20 @@ export function TeamStatsView() {
                 </div>
               </div>
 
-              <div className="mb-4">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium text-gray-500 uppercase tracking-wider" title="Required pages visited within their cooldown window">Pages covered</span>
-                  <span className="text-gray-600">
-                    {m.coverage.captured} / {m.coverage.referenced}
+              {/* "Pages covered" came from the extension and has no data source any more. */}
+              <div className="mb-4 rounded-lg bg-gray-50 border border-gray-100 px-3 py-2.5">
+                <div className="flex items-baseline justify-between">
+                  <span
+                    className="text-xs font-medium text-gray-500 uppercase tracking-wider"
+                    title="Jobs this bidder opened from the Find jobs tab of this app. Browsing on upwork.com is not tracked."
+                  >
+                    Jobs reviewed
                   </span>
+                  <span className="text-sm font-semibold text-gray-900">{m.jobsReviewed.last7Days}</span>
                 </div>
-                <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
-                  <div
-                    className="h-2 rounded-full bg-teal-500 transition-all"
-                    style={{ width: `${m.coverage.pct}%` }}
-                  />
-                </div>
-                <div className="mt-1.5 text-right text-sm font-semibold text-gray-900">
-                  {m.coverage.pct}%
+                <div className="mt-0.5 flex items-baseline justify-between text-[11px] text-gray-400">
+                  <span>last 7 days · recorded in this app</span>
+                  <span>{m.jobsReviewed.total} in total</span>
                 </div>
               </div>
 
@@ -144,7 +145,7 @@ export function TeamStatsView() {
               </div>
 
               <div className="mt-4 text-[11px] text-gray-400">
-                Last capture:{" "}
+                Last proposal or reply:{" "}
                 {m.latestCaptureAt ? new Date(m.latestCaptureAt).toLocaleString() : "—"}
               </div>
 

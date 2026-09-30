@@ -1,12 +1,23 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveMeSession, authErrorResponse } from "@/lib/me-auth";
+import { accountsWithNewPipelineData, memberAccount, submissionProvenanceByJobUrl, unavailableMetrics, upworkIdsWithHiredSource } from "@/lib/dashboard-feed";
 
 export async function GET(req: NextRequest) {
   try {
     const { member } = await resolveMeSession(req);
 
+    // The bidder's own account, plus accounts they have proposals or alerts on — not
+    // every account in the system.
+    const own = await memberAccount(member);
     const accounts = await prisma.account.findMany({
+      where: {
+        OR: [
+          { id: own.id },
+          { proposals: { some: { capturedByUserId: member.id } } },
+          { alerts: { some: { capturedByUserId: member.id } } },
+        ],
+      },
       include: {
         profile: { include: { capturedByUser: { select: { id: true, name: true } } } },
         proposals: {
@@ -27,8 +38,17 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    const [newPipeline, provenance, hiredSource] = await Promise.all([
+      accountsWithNewPipelineData(accounts.map((a) => a.id)),
+      submissionProvenanceByJobUrl({ memberId: member.id }),
+      upworkIdsWithHiredSource(accounts.map((a) => a.freelancerId)),
+    ]);
+
     const result = accounts.map((account) => {
       return {
+        metricsUnavailable: newPipeline.has(account.id) ? unavailableMetrics(hiredSource.has(account.freelancerId)) : [],
+        isDisabled: account.isDisabled,
+        disabledReason: account.disabledReason ?? null,
         id: account.id,
         freelancerId: account.freelancerId,
         name: account.name,
@@ -37,6 +57,7 @@ export async function GET(req: NextRequest) {
         createdAt: account.createdAt,
         proposals: account.proposals.map((p) => ({
           id: p.id,
+          provenance: provenance.get(`${account.id}|${p.jobUrl}`) ?? null,
           jobTitle: p.jobTitle,
           jobUrl: p.jobUrl,
           jobCategory: p.jobCategory,

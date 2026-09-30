@@ -39,6 +39,7 @@ export function CoverageLeaderboardView() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loads this view's data on mount (existing pattern)
     setLoading(true);
     setError(null);
     fetch(`/api/admin/coverage-leaderboard?month=${month}`, { cache: "no-store" })

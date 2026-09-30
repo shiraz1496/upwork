@@ -53,6 +53,9 @@ export interface ProposalData {
   capturedBy: { id: string; name: string } | null;
   submittedBy: { id: string; name: string } | null;
   account?: { id: string; name: string };
+  // How we know this proposal was submitted (new pipeline only; absent on legacy rows):
+  // DEVELOPER_CONFIRMED = the bidder said so, MCP_VERIFIED = seen in Upwork's own list.
+  provenance?: "DEVELOPER_CONFIRMED" | "MCP_VERIFIED" | null;
 }
 
 export interface AlertData {
@@ -94,6 +97,8 @@ export interface AccountData {
   proposalCount: number;
   alertCounts?: { messages: number; invites: number; offers: number };
   profile: FreelancerProfileData | null;
+  // Metrics with no data source for this account ("viewed" | "hired"): show "—", never 0.
+  metricsUnavailable?: string[];
 }
 
 export interface FreelancerProfileData {

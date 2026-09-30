@@ -91,9 +91,20 @@ export function OverviewPanel({
   const [to, setTo] = useState(() => todayKey());
 
   const aggregated = useMemo(() => computeAggregated(accounts, from, to), [accounts, from, to]);
+  // Metrics with no data source for the accounts in view (set by the API). They render as
+  // "—" / are left out of charts — never as 0.
+  const unavailable = useMemo(() => new Set(accounts.flatMap((a) => a.metricsUnavailable ?? [])), [accounts]);
+  const noViewed = unavailable.has("viewed");
+  const noHired = unavailable.has("hired");
   const cmp = useMemo(() => computePeriodComparison(accounts, from, to), [accounts, from, to]);
   const timeSeriesData = useMemo(() => computeTimeSeriesData(accounts, from, to), [accounts, from, to]);
-  const funnelData = useMemo(() => computeFunnelData(aggregated), [aggregated]);
+  const funnelData = useMemo(
+    () =>
+      computeFunnelData(aggregated).filter(
+        (row) => !(noViewed && row.stage === "Viewed") && !(noHired && row.stage === "Hired"),
+      ),
+    [aggregated, noViewed, noHired],
+  );
   const timeline = useMemo(() => computeSnapshotTimeline(accounts, from, to), [accounts, from, to]);
   const perAccountComparison = useMemo(
     () =>
@@ -133,6 +144,18 @@ export function OverviewPanel({
         <TimelineDatePicker from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
       </div>
 
+      {unavailable.size > 0 && (
+        <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-xs text-gray-500">
+          <span className="font-medium text-gray-600">
+            {[noViewed && "Viewed", noHired && "Hired"].filter(Boolean).join(" and ")} unavailable.
+          </span>{" "}
+          {noViewed && "Upwork does not report whether a client viewed a proposal. "}
+          {noHired && "Hired is read from Upwork and needs a connected, refreshed Upwork account. "}
+          These are shown as &ldquo;—&rdquo; instead of 0. Sent counts proposals confirmed as submitted; Interviewed
+          counts client interviews and offers linked to a proposal.
+        </div>
+      )}
+
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatCard
           label="Proposals Sent"
@@ -142,10 +165,10 @@ export function OverviewPanel({
         />
         <StatCard
           label="Viewed"
-          value={fmt(aggregated.viewed)}
-          sub={`${aggregated.viewRate}% view rate`}
-          color={COLORS.cyan}
-          delta={cmp ? pct(cmp.cur.viewed, cmp.prev.viewed) : null}
+          value={noViewed ? "—" : fmt(aggregated.viewed)}
+          sub={noViewed ? "unavailable" : `${aggregated.viewRate}% view rate`}
+          color={noViewed ? "#9ca3af" : COLORS.cyan}
+          delta={!noViewed && cmp ? pct(cmp.cur.viewed, cmp.prev.viewed) : null}
         />
         <StatCard
           label="Interviewed"
@@ -156,10 +179,10 @@ export function OverviewPanel({
         />
         <StatCard
           label="Hired"
-          value={fmt(aggregated.hired)}
-          sub={`${aggregated.hireRate}% hire rate`}
-          color={COLORS.green}
-          delta={cmp ? pct(cmp.cur.hired, cmp.prev.hired) : null}
+          value={noHired ? "—" : fmt(aggregated.hired)}
+          sub={noHired ? "unavailable" : `${aggregated.hireRate}% hire rate`}
+          color={noHired ? "#9ca3af" : COLORS.green}
+          delta={!noHired && cmp ? pct(cmp.cur.hired, cmp.prev.hired) : null}
         />
         {aggregated.jss !== null && (
           <StatCard
@@ -185,32 +208,35 @@ export function OverviewPanel({
       </div>
 
       {/* ── Snapshot timeline strip ──────────────────────────────────────── */}
-      <SnapshotTimeline entries={timeline} prevEntries={prevTimeline} />
+      <SnapshotTimeline entries={timeline} prevEntries={prevTimeline} noViewed={noViewed} noHired={noHired} />
 
       <SectionTitle>Conversion Pipeline</SectionTitle>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Sent → Viewed", value: `${aggregated.viewRate}%`, color: COLORS.cyan },
+          { label: "Sent → Viewed", value: `${aggregated.viewRate}%`, color: COLORS.cyan, na: noViewed },
           {
             label: "Viewed → Interview",
             value: `${aggregated.viewToInterview}%`,
             color: COLORS.purple,
+            na: noViewed,
           },
           {
             label: "Interview → Hired",
             value: `${aggregated.interviewToHire}%`,
             color: COLORS.green,
+            na: noHired,
           },
-          { label: "Overall Hire Rate", value: `${aggregated.hireRate}%`, color: COLORS.teal },
+          { label: "Overall Hire Rate", value: `${aggregated.hireRate}%`, color: COLORS.teal, na: noHired },
         ].map((item) => (
           <div
             key={item.label}
             className="bg-white border border-gray-200 rounded-xl p-4 text-center shadow-sm"
           >
             <div className="text-xs text-gray-500 mb-1">{item.label}</div>
-            <div className="text-xl font-bold" style={{ color: item.color }}>
-              {item.value}
+            <div className="text-xl font-bold" style={{ color: item.na ? "#9ca3af" : item.color }}>
+              {item.na ? "—" : item.value}
             </div>
+            {item.na && <div className="text-[10px] text-gray-400 mt-0.5">unavailable</div>}
           </div>
         ))}
       </div>
@@ -272,13 +298,14 @@ export function OverviewPanel({
                 <Tooltip {...CHART_TOOLTIP_STYLE} />
                 <Legend />
                 <Area type="monotone" dataKey="sent" name="Sent" stroke={COLORS.blue} fill={COLORS.blue} fillOpacity={0.08} />
-                <Area type="monotone" dataKey="viewed" name="Viewed" stroke={COLORS.cyan} fill={COLORS.cyan} fillOpacity={0.08} />
+                {!noViewed && <Area type="monotone" dataKey="viewed" name="Viewed" stroke={COLORS.cyan} fill={COLORS.cyan} fillOpacity={0.08} />}
                 <Area type="monotone" dataKey="interviewed" name="Interviewed" stroke={COLORS.purple} fill={COLORS.purple} fillOpacity={0.08} />
-                <Area type="monotone" dataKey="hired" name="Hired" stroke={COLORS.green} fill={COLORS.green} fillOpacity={0.08} />
+                {!noHired && <Area type="monotone" dataKey="hired" name="Hired" stroke={COLORS.green} fill={COLORS.green} fillOpacity={0.08} />}
               </AreaChart>
             </ResponsiveContainer>
           </div>
 
+          {!(noViewed && noHired) && (
           <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
             <h3 className="text-sm font-semibold text-gray-600 mb-4">Conversion Rates Over Time</h3>
             <ResponsiveContainer width="100%" height={280}>
@@ -288,11 +315,12 @@ export function OverviewPanel({
                 <YAxis stroke={CHART_AXIS_COLOR} tick={{ fill: CHART_TICK_COLOR, fontSize: 12 }} unit="%" />
                 <Tooltip {...CHART_TOOLTIP_STYLE} />
                 <Legend />
-                <Line type="monotone" dataKey="viewRate" name="View Rate" stroke={COLORS.cyan} strokeWidth={2} dot={{ r: 3 }} />
-                <Line type="monotone" dataKey="hireRate" name="Hire Rate" stroke={COLORS.green} strokeWidth={2} dot={{ r: 3 }} />
+                {!noViewed && <Line type="monotone" dataKey="viewRate" name="View Rate" stroke={COLORS.cyan} strokeWidth={2} dot={{ r: 3 }} />}
+                {!noHired && <Line type="monotone" dataKey="hireRate" name="Hire Rate" stroke={COLORS.green} strokeWidth={2} dot={{ r: 3 }} />}
               </LineChart>
             </ResponsiveContainer>
           </div>
+          )}
 
           {/* {timeSeriesData.some((d) => d.jss !== null) && (
             <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
@@ -336,9 +364,9 @@ export function OverviewPanel({
                 <Tooltip {...CHART_TOOLTIP_STYLE} />
                 <Legend />
                 <Bar dataKey="sent" name="Sent" fill={COLORS.blue} />
-                <Bar dataKey="viewed" name="Viewed" fill={COLORS.cyan} />
+                {!noViewed && <Bar dataKey="viewed" name="Viewed" fill={COLORS.cyan} />}
                 <Bar dataKey="interviewed" name="Interviewed" fill={COLORS.purple} />
-                <Bar dataKey="hired" name="Hired" fill={COLORS.green} />
+                {!noHired && <Bar dataKey="hired" name="Hired" fill={COLORS.green} />}
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -433,6 +461,7 @@ function TimelineDatePicker({ from, to, onFromChange, onToChange }: {
 
   // Sync if parent from/to change
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- keeps the date picker's draft in sync with the applied range (existing behaviour)
     setSelection([{ startDate: keyToDate(from), endDate: keyToDate(to), key: "selection" }]);
   }, [from, to]);
 
@@ -462,7 +491,7 @@ function TimelineDatePicker({ from, to, onFromChange, onToChange }: {
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [open, from, to]);
+  }, [open, from, to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="relative" ref={wrapperRef}>
@@ -519,11 +548,11 @@ function deltaPct(cur: number, prev: number): number | null {
   return Math.round(((cur - prev) / prev) * 100);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by the legend that is commented out in SnapshotTimeline
 function DeltaBadge({ cur, prev }: { cur: number; prev: number }) {
   const d = deltaPct(cur, prev);
   if (d === null || d === undefined || isNaN(d) || d === 0) return null;
   const up = d > 0;
-  const neutral = d === 0;
   return (
     <span
       className="inline-flex items-center gap-0.5 text-[9px] font-medium leading-none"
@@ -535,11 +564,16 @@ function DeltaBadge({ cur, prev }: { cur: number; prev: number }) {
   );
 }
 
-function SnapshotTimeline({ entries, prevEntries }: {
+function SnapshotTimeline({ entries, prevEntries, noViewed = false, noHired = false }: {
   entries: TimelineEntry[];
   prevEntries: TimelineEntry[];
+  noViewed?: boolean;
+  noHired?: boolean;
 }) {
+  // Rows for metrics without a data source are left out rather than drawn as 0.
+  const shown = (label: string) => !(noViewed && label === "viewed") && !(noHired && label === "hired");
   const globalMax = Math.max(...entries.map((e) => e.proposalsSentOnDay), 1);
+  /* eslint-disable @typescript-eslint/no-unused-vars -- these totals feed the legend that is commented out below */
   const totalSent = entries.reduce((s, e) => s + e.proposalsSentOnDay, 0);
   const totalViewed = entries.reduce((s, e) => s + e.proposalsViewedOnDay, 0);
   const totalInterviewed = entries.reduce((s, e) => s + e.proposalsInterviewedOnDay, 0);
@@ -548,6 +582,7 @@ function SnapshotTimeline({ entries, prevEntries }: {
   const prevViewed = prevEntries.reduce((s, e) => s + e.proposalsViewedOnDay, 0);
   const prevInterviewed = prevEntries.reduce((s, e) => s + e.proposalsInterviewedOnDay, 0);
   const prevHired = prevEntries.reduce((s, e) => s + e.proposalsHiredOnDay, 0);
+  /* eslint-enable @typescript-eslint/no-unused-vars */
 
   return (
     <div className="mt-5 mb-1">
@@ -582,7 +617,6 @@ function SnapshotTimeline({ entries, prevEntries }: {
           const count = entry.proposalsSentOnDay;
           const viewed = entry.proposalsViewedOnDay;
           const interviewed = entry.proposalsInterviewedOnDay;
-          const barPct = Math.max((count / globalMax) * 100, count > 0 ? 6 : 0);
           const dayLabel = new Date(entry.capturedAt).toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
 
           return (
@@ -613,11 +647,11 @@ function SnapshotTimeline({ entries, prevEntries }: {
               {/* Bars */}
               <div className="flex items-end gap-0.5 h-12 px-0.5">
                 {[
-                  { val: count, color: COLORS.blue },
-                  { val: viewed, color: COLORS.cyan },
-                  { val: interviewed, color: COLORS.purple },
-                  { val: entry.proposalsHiredOnDay, color: COLORS.green },
-                ].map(({ val, color }, bi) => {
+                  { val: count, color: COLORS.blue, label: "sent" },
+                  { val: viewed, color: COLORS.cyan, label: "viewed" },
+                  { val: interviewed, color: COLORS.purple, label: "interviewed" },
+                  { val: entry.proposalsHiredOnDay, color: COLORS.green, label: "hired" },
+                ].filter((b) => shown(b.label)).map(({ val, color }, bi) => {
                   const pct = Math.max((val / globalMax) * 100, val > 0 ? 6 : 0);
                   return (
                     <div key={bi} className="flex-1 flex flex-col justify-end h-full relative">
@@ -645,7 +679,7 @@ function SnapshotTimeline({ entries, prevEntries }: {
                   { val: viewed, label: "viewed", color: COLORS.cyan },
                   { val: interviewed, label: "interviewed", color: COLORS.purple },
                   { val: entry.proposalsHiredOnDay, label: "hired", color: COLORS.green },
-                ].map(({ val, label, color }) => (
+                ].filter((r) => shown(r.label)).map(({ val, label, color }) => (
                   <div key={label} className="flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-sm inline-block shrink-0" style={{ background: color }} />
                     <span className="text-[11px] font-semibold text-gray-700">{val}</span>

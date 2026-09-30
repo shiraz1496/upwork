@@ -10,6 +10,7 @@ import { BlockedTitlesView } from "@/components/admin/BlockedTitlesView";
 import { AccountManagementView } from "@/components/admin/AccountManagementView";
 import { DuplicateProposalsView } from "@/components/admin/DuplicateProposalsView";
 import { OverviewPanel } from "@/components/OverviewPanel";
+import { ProvenanceBadge } from "@/components/me/ProvenanceBadge";
 import { FreelancerProfileCard } from "@/components/FreelancerProfileCard";
 import type {
   AccountData,
@@ -34,11 +35,6 @@ const COLORS = {
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function fmt(n: number): string {
-  if (n >= 1000) return (n / 1000).toFixed(1) + "k";
-  return String(n);
-}
 
 function fmtDateTime(d: string): string {
   const dt = new Date(d);
@@ -215,6 +211,7 @@ const ProposalDrawer = React.memo(function ProposalDrawer({ proposal, onClose }:
                 />
               )}
               {proposal.viewedByClient && <Badge text="Viewed by Client" variant="green" />}
+              <ProvenanceBadge provenance={proposal.provenance} />
             </div>
           </div>
           <button
@@ -424,6 +421,11 @@ type Tab =
   | "accounts"
   | "duplicate-proposals";
 
+// Coverage ("pages to open") was fed only by the extension. With the extension shut down
+// nothing records Upwork browsing, so the coverage tabs, banner and stats are switched off
+// (MCP migration, Phase G). The code is kept for reference.
+const COVERAGE_ENABLED = false;
+
 // Tooltip style constants were moved to OverviewPanel
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
@@ -444,6 +446,7 @@ export default function Dashboard() {
     }
     if (selectedAccountId === "all") return;
     const current = accounts.find((a) => a.id === selectedAccountId);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- existing dashboard behaviour: loads data / keeps the selected account valid
     if (!current) setSelectedAccountId(accounts[0].id);
   }, [accounts, selectedAccountId]);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -469,6 +472,7 @@ export default function Dashboard() {
   // Dev-only escape hatch: ?secret-dev=yes reveals the "Blocked Titles" tab.
   const [secretDev, setSecretDev] = useState(false);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- existing dashboard behaviour: loads data / keeps the selected account valid
     setSecretDev(new URLSearchParams(window.location.search).get("secret-dev") === "yes");
   }, []);
 
@@ -511,6 +515,7 @@ export default function Dashboard() {
   }, [selectedProposal]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- existing dashboard behaviour: loads data / keeps the selected account valid
     setLoading(true);
     Promise.all([
       fetch("/api/accounts").then((r) => r.json()),
@@ -532,7 +537,7 @@ export default function Dashboard() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
 
-    fetch("/api/admin/coverage-stats")
+    if (COVERAGE_ENABLED) fetch("/api/admin/coverage-stats")
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data) return;
@@ -566,13 +571,14 @@ export default function Dashboard() {
   // When filtered list changes, select first account if available
   useEffect(() => {
     if (accountsForMember.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- existing dashboard behaviour: loads data / keeps the selected account valid
       setSelectedAccountId("all");
       return;
     }
     if (selectedAccountId === "all" || !accountsForMember.find((a) => a.id === selectedAccountId)) {
       setSelectedAccountId(accountsForMember[0].id);
     }
-  }, [accountsForMember]);
+  }, [accountsForMember]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selected = useMemo(() => {
     if (selectedAccountId === "all") return null;
@@ -583,6 +589,18 @@ export default function Dashboard() {
     const accs = selected ? [selected] : accounts;
     return applyMemberFilter(accs, memberFilter === "all" ? null : memberFilter);
   }, [accounts, selected, memberFilter]);
+
+  // "Viewed by client" has no source for accounts fed by the new flow, so the viewed
+  // filter and the view-rate analysis prompt are hidden when no account in view has it.
+  const viewedKnown = useMemo(() => {
+    const accs = selected ? [selected] : accountsForMember;
+    return accs.some((a) => a.proposals.length > 0 && !a.metricsUnavailable?.includes("viewed"));
+  }, [selected, accountsForMember]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- drops a filter whose control is no longer shown
+    if (!viewedKnown) setViewedFilter("all");
+  }, [viewedKnown]);
 
   const [proposalsSortAsc, setProposalsSortAsc] = useState(false);
 
@@ -596,7 +614,7 @@ export default function Dashboard() {
 
   const submissions = useMemo(
     () => allProposals
-      .filter((p) => p.submittedViaExtension)
+      .filter((p) => p.submittedViaExtension || p.provenance)
       .sort((a, b) => {
         const ta = new Date(a.submittedAt || a.createdAt).getTime();
         const tb = new Date(b.submittedAt || b.createdAt).getTime();
@@ -797,8 +815,12 @@ export default function Dashboard() {
     { id: "accounts", label: "Accounts", icon: <IconUsers /> },
     { id: "team", label: "Team", icon: <IconUser /> },
     { id: "team-stats", label: "Team Stats", icon: <IconChart /> },
-    { id: "leaderboard", label: "Leaderboard", icon: <IconTrophy /> },
-    { id: "coverage-pages", label: "Coverage Pages", icon: <IconCompass /> },
+    ...(COVERAGE_ENABLED
+      ? [
+          { id: "leaderboard" as Tab, label: "Leaderboard", icon: <IconTrophy /> },
+          { id: "coverage-pages" as Tab, label: "Coverage Pages", icon: <IconCompass /> },
+        ]
+      : []),
     { id: "bidding-criteria", label: "Bid Criteria", icon: <IconClipboard /> },
     ...(secretDev ? [{ id: "blocked-titles" as Tab, label: "Blocked Titles", icon: <IconFileX /> }] : []),
     ...(secretDev ? [{ id: "duplicate-proposals" as Tab, label: "Duplicates", icon: <IconFile /> }] : []),
@@ -954,7 +976,7 @@ export default function Dashboard() {
             </button>
           </nav>
         </div>
-        {coverageAlert && !coverageAlertDismissed && (
+        {COVERAGE_ENABLED && coverageAlert && !coverageAlertDismissed && (
           <div className="mx-3 mb-2 rounded-lg border border-amber-200 bg-amber-50 overflow-hidden">
             {/* Collapsed strip — always visible */}
             <div className="flex items-center gap-2 px-3 py-2">
@@ -1063,13 +1085,6 @@ export default function Dashboard() {
 
           {/* ── Overview Tab ─────────────────────────────────────────────────── */}
           {activeTab === "overview" && (() => {
-            const totalProposals = sortedProposalSections.reduce((s, [, p]) => s + p.length, 0);
-            const viewedProposals = sortedProposalSections.reduce((sum, [section, props]) => {
-              const implied = /active|offers?|interviewing/i.test(section);
-              return sum + props.filter((p) => p.viewedByClient || implied).length;
-            }, 0);
-            const viewRate = totalProposals > 0 ? Math.round((viewedProposals / totalProposals) * 100) : 0;
-            const unreadCount = unreadAlerts.length;
             return (
               <>
                 <OverviewPanel
@@ -1136,16 +1151,18 @@ export default function Dashboard() {
                       </button>
                     )}
                   </div>
-                  <select
-                    value={viewedFilter}
-                    onChange={(e) => setViewedFilter(e.target.value as "all" | "viewed" | "not_viewed" | "unscanned")}
-                    className="text-xs border border-gray-200 rounded-md px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
-                  >
-                    <option value="all">All</option>
-                    <option value="viewed">Viewed</option>
-                    <option value="not_viewed">Not viewed</option>
-                    <option value="unscanned">Unscanned</option>
-                  </select>
+                  {viewedKnown && (
+                    <select
+                      value={viewedFilter}
+                      onChange={(e) => setViewedFilter(e.target.value as "all" | "viewed" | "not_viewed" | "unscanned")}
+                      className="text-xs border border-gray-200 rounded-md px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                    >
+                      <option value="all">All</option>
+                      <option value="viewed">Viewed</option>
+                      <option value="not_viewed">Not viewed</option>
+                      <option value="unscanned">Unscanned</option>
+                    </select>
+                  )}
                   <select
                     value={proposalFilter}
                     onChange={(e) => setProposalFilter(e.target.value)}
@@ -1216,7 +1233,7 @@ export default function Dashboard() {
                       </button>
                     );
                   })()}
-                  <button
+                  {viewedKnown && <button
                     onClick={openInChatGPT}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
                   >
@@ -1231,14 +1248,14 @@ export default function Dashboard() {
                         Open in ChatGPT
                       </>
                     )}
-                  </button>
+                  </button>}
                 </div>
               </div>
 
               {sortedProposalSections.length === 0 ? (
                 <div className="border border-dashed border-gray-200 rounded-xl py-16 text-center">
                   <p className="text-sm font-medium text-gray-500">No proposals tracked yet</p>
-                  <p className="text-xs text-gray-400 mt-1">Make sure the extension is installed and bidders are browsing their Upwork proposals list.</p>
+                  <p className="text-xs text-gray-400 mt-1">Proposals appear here once a bidder confirms one as submitted in their dashboard.</p>
                 </div>
               ) : filteredProposalSections.length === 0 ? (
                 <div className="border border-gray-200 rounded-xl py-16 text-center">
@@ -1387,6 +1404,7 @@ export default function Dashboard() {
                                       <div className="flex flex-col gap-1">
                                         <span className="text-teal-600 font-medium truncate block">{p.jobTitle || "Untitled"}</span>
                                         <div className="flex flex-wrap gap-1">
+                                          <ProvenanceBadge provenance={p.provenance} />
                                           {p.jobCategory && (
                                             <span className="px-1.5 py-0.5 text-[10px] bg-purple-50 text-purple-600 border border-purple-100 rounded">
                                               {p.jobCategory}
@@ -1546,7 +1564,7 @@ export default function Dashboard() {
                 <div>
                   <h2 className="text-base font-semibold text-gray-900">Submissions</h2>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    Captured the moment you clicked “Submit a Proposal” on Upwork
+                    Proposals bidders confirmed they submitted on Upwork
                   </p>
                 </div>
                 <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-md">
@@ -1561,7 +1579,7 @@ export default function Dashboard() {
                   </div>
                   <h3 className="text-sm font-semibold text-gray-700">No submissions yet</h3>
                   <p className="text-xs text-gray-400 mt-1 max-w-md mx-auto">
-                    Submissions appear here automatically when you click “Submit a Proposal” on an Upwork apply page with the extension active.
+                    Submissions appear here when a bidder confirms in their dashboard that they submitted a proposal on Upwork.
                   </p>
                 </div>
               ) : (
@@ -1578,6 +1596,7 @@ export default function Dashboard() {
                             <span className="text-[11px] text-gray-400">
                               {fmtDateTime(p.submittedAt || p.createdAt)}
                             </span>
+                            <ProvenanceBadge provenance={p.provenance} />
                             {p.account?.name && (
                               <>
                                 <span className="text-[11px] text-gray-300">·</span>
@@ -1684,7 +1703,7 @@ export default function Dashboard() {
                   </div>
                   <h3 className="text-sm font-semibold text-gray-700">No alerts yet</h3>
                   <p className="text-xs text-gray-400 mt-1 max-w-md mx-auto">
-                    Messages and invites from clients appear here when bidders browse Upwork with the extension active.
+                    Client replies appear here after a bidder refreshes their Upwork activity from their dashboard.
                   </p>
                 </div>
               ) : (
@@ -1777,9 +1796,9 @@ export default function Dashboard() {
           {activeTab === "team-stats" && <TeamStatsView />}
 
           {/* ── Coverage Pages Tab ───────────────────────────────────────────── */}
-          {activeTab === "coverage-pages" && <CoveragePagesView />}
+          {COVERAGE_ENABLED && activeTab === "coverage-pages" && <CoveragePagesView />}
           {/* ── Leaderboard Tab ──────────────────────────────────────────────── */}
-          {activeTab === "leaderboard" && <CoverageLeaderboardView />}
+          {COVERAGE_ENABLED && activeTab === "leaderboard" && <CoverageLeaderboardView />}
           {/* ── Bid Criteria Tab ─────────────────────────────────────────────── */}
           {activeTab === "bidding-criteria" && <BiddingCriteriaView />}
           {activeTab === "blocked-titles" && secretDev && <BlockedTitlesView />}

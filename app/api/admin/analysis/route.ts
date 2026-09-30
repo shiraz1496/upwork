@@ -1,10 +1,12 @@
 import { NextRequest } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { requireAdmin, adminErrorResponse } from "@/lib/admin-auth";
+import { aiScoringDisabledResponse, aiScoringEnabled } from "@/lib/ai-scoring";
 
 export async function POST(req: NextRequest) {
   try {
     await requireAdmin();
+    if (!aiScoringEnabled()) return aiScoringDisabledResponse();
 
     const { prompt } = await req.json();
     if (!prompt || typeof prompt !== "string") {

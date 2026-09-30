@@ -1,10 +1,6 @@
-import { withAttribution } from "@/lib/attribution";
-import { prisma } from "@/lib/prisma";
+import { extensionGone } from "@/lib/deprecated";
 
-export const GET = withAttribution(async () => {
-  const pages = await prisma.requiredPage.findMany({
-    select: { id: true, name: true, url: true },
-    orderBy: { createdAt: "asc" },
-  });
-  return Response.json({ pages });
-});
+// Deprecated: only the extension called this (MCP migration, Phase C). Old code is in git history.
+export async function GET() {
+  return extensionGone();
+}

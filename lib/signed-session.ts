@@ -67,6 +67,8 @@ export async function verifySession(
     return null;
   }
   if (
+    typeof payload !== "object" ||
+    payload === null ||
     typeof payload.memberId !== "string" ||
     (payload.role !== "admin" && payload.role !== "bidder") ||
     typeof payload.sessionVersion !== "number" ||

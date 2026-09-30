@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { aiScoringDisabledResponse, aiScoringEnabled } from "@/lib/ai-scoring";
 import { requireDeveloper, authErrorResponse } from "@/lib/me-auth";
 import { AuthError } from "@/lib/member-auth";
 import { logError } from "@/lib/log";
@@ -15,13 +16,7 @@ async function callGemini(model: string, apiKey: string, body: unknown): Promise
 }
 
 export async function POST(request: Request) {
-  // AI scoring may require Upwork approval (handover §1, Phase F): off unless explicitly enabled.
-  if (process.env.AI_SCORING_ENABLED !== "true") {
-    return NextResponse.json(
-      { error: "disabled", detail: "AI cover-letter scoring is disabled pending Upwork approval" },
-      { status: 403 },
-    );
-  }
+  if (!aiScoringEnabled()) return aiScoringDisabledResponse();
   try {
     await requireDeveloper();
     const apiKey = process.env.GEMINI_API_KEY || '';  

@@ -14,6 +14,9 @@ export async function GET() {
           select: { id: true, label: true, lastUsedAt: true, createdAt: true },
         },
         _count: { select: { tokens: true } },
+        // Status only — an admin can see whether a bidder is connected, never the tokens,
+        // and cannot change the connection (handover §10.2).
+        upworkConnection: { select: { status: true, accountName: true, lastSyncedAt: true } },
       },
     });
     return Response.json({ members });

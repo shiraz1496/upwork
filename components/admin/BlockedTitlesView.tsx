@@ -79,6 +79,7 @@ export function BlockedTitlesView() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loads this view's data on mount (existing pattern)
     load();
   }, [load]);
 

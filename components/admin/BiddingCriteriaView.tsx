@@ -192,6 +192,7 @@ export function BiddingCriteriaView() {
     setLoading(false);
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- loads this view's data on mount (existing pattern)
   useEffect(() => { load(); }, [load]);
 
   const selectedField = fieldMeta(key);
@@ -676,7 +677,7 @@ export function BiddingCriteriaView() {
             </div>
             <h3 className="text-base font-semibold text-gray-900 text-center mb-1">Delete criterion?</h3>
             <p className="text-sm text-center text-gray-500 mb-1">This will remove</p>
-            <p className="text-sm font-semibold text-center text-gray-800 mb-5">"{formatCriterion(confirmDelete)}"</p>
+            <p className="text-sm font-semibold text-center text-gray-800 mb-5">&quot;{formatCriterion(confirmDelete)}&quot;</p>
             <div className="flex gap-3">
               <button
                 onClick={() => setConfirmDelete(null)}

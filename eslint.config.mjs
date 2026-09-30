@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The Chrome extension was retired in the MCP migration; it is kept in the repo for
+    // reference only and is not built or deployed.
+    "extension/**",
   ]),
 ]);
 

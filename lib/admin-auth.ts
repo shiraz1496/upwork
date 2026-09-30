@@ -29,6 +29,13 @@ export function adminErrorResponse(err: unknown) {
   if (err instanceof AdminAuthError) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
+  // Client mistakes are not server errors.
+  if (err instanceof SyntaxError) {
+    return Response.json({ error: "invalid", detail: "body must be JSON" }, { status: 400 });
+  }
+  const code = (err as { code?: unknown } | null)?.code;
+  if (code === "P2002") return Response.json({ error: "conflict", detail: "already exists" }, { status: 409 });
+  if (code === "P2025") return Response.json({ error: "not found" }, { status: 404 });
   logError("admin", err);
   return Response.json({ error: "internal" }, { status: 500 });
 }

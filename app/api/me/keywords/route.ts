@@ -1,20 +1,13 @@
-import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveMeSession, authErrorResponse } from "@/lib/me-auth";
+import { memberAccount } from "@/lib/dashboard-feed";
 
-export async function GET(req: NextRequest) {
+// Keywords of the bidder's OWN account. (This used to take a freelancerId from the client,
+// which let a bidder read any account's keywords.)
+export async function GET() {
   try {
-    await resolveMeSession(req);
-    const freelancerId = new URL(req.url).searchParams.get("freelancerId");
-    if (!freelancerId) {
-      return Response.json({ keywords: [] });
-    }
-    const account = await prisma.account.findUnique({
-      where: { freelancerId },
-      select: { id: true },
-    });
-    if (!account) return Response.json({ keywords: [] });
-
+    const { member } = await resolveMeSession();
+    const account = await memberAccount(member);
     const keywords = await prisma.accountKeyword.findMany({
       where: { accountId: account.id },
       orderBy: { createdAt: "asc" },

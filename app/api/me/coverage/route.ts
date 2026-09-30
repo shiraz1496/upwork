@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
         pages: { total: allPages.length, visited: visitedSet.size },
         items: { total: totalItems, captured: capturedItems },
       },
-      unvisited: unvisitedPages.map(({ cooldownHours: _, ...p }) => ({ ...p, type: "PAGE" })),
+      unvisited: unvisitedPages.map((p) => ({ id: p.id, name: p.name, url: p.url, type: "PAGE" })),
     });
 
   } catch (err) {

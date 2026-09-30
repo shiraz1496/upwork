@@ -1,11 +1,6 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { withAttribution } from "@/lib/attribution";
+import { extensionGone } from "@/lib/deprecated";
 
-export const POST = withAttribution(async ({ member }) => {
-  const result = await prisma.nudge.updateMany({
-    where: { bidderId: member.id, deliveredAt: null },
-    data: { deliveredAt: new Date() },
-  });
-  return NextResponse.json({ ok: true, acked: result.count });
-});
+// Deprecated: only the extension called this (MCP migration, Phase C). Old code is in git history.
+export async function POST() {
+  return extensionGone();
+}

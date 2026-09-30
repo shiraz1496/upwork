@@ -22,6 +22,24 @@ export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/admin/team
     if (!before) return Response.json({ error: "not found" }, { status: 404 });
 
     const { password, ...fields } = body;
+
+    // Refuse a change that would leave nobody able to administer the team.
+    const stopsBeingActiveAdmin =
+      before.role === "admin" &&
+      before.status === "active" &&
+      ((fields.role !== undefined && fields.role !== "admin") || (fields.status !== undefined && fields.status !== "active"));
+    if (stopsBeingActiveAdmin) {
+      const otherAdmins = await prisma.teamMember.count({
+        where: { role: "admin", status: "active", id: { not: id } },
+      });
+      if (otherAdmins === 0) {
+        return Response.json(
+          { error: "last_admin", detail: "This is the only active admin. Make someone else an admin first." },
+          { status: 409 },
+        );
+      }
+    }
+
     // Role/status/password changes invalidate every existing session for this member.
     const invalidate =
       password !== undefined ||

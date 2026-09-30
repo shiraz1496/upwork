@@ -1,17 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { OverviewPanel } from "@/components/OverviewPanel";
 import { FreelancerProfileCard } from "@/components/FreelancerProfileCard";
-import { GuideView } from "@/components/GuideView";
-import type { AccountData, ProposalData } from "@/lib/overview-types";
-
-type CoveragePayload = {
-  member: { id: string; name: string };
-  coveragePct: number;
-  totals: { total: number; visited: number; unvisited: number };
-  unvisited: { id: string; name: string; url: string }[];
-};
+import { JobsView } from "@/components/me/JobsView";
+import { ProposalsView, type ProposalSeed } from "@/components/me/ProposalsView";
+import { RepliesView } from "@/components/me/RepliesView";
+import { UpworkView } from "@/components/me/UpworkView";
+import type { AccountData } from "@/lib/overview-types";
 
 type Note = {
   id: string;
@@ -27,7 +24,9 @@ type NotesPayload = {
   notes: Note[];
 };
 
-type MeTab = "overview" | "profile" | "coverage" | "notes" | "untracked" | "guide";
+// Coverage ("pages to open"), unscanned proposals and the extension guide were removed with
+// the extension: nothing records Upwork browsing any more (MCP migration, Phase G).
+type MeTab = "overview" | "profile" | "upwork" | "jobs" | "proposals" | "replies" | "notes";
 
 const iconProps = {
   viewBox: "0 0 24 24",
@@ -42,12 +41,6 @@ const IconHome = () => (
   <svg {...iconProps}>
     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
     <polyline points="9 22 9 12 15 12 15 22" />
-  </svg>
-);
-const IconCompass = () => (
-  <svg {...iconProps}>
-    <circle cx="12" cy="12" r="10" />
-    <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
   </svg>
 );
 const IconMessage = () => (
@@ -68,76 +61,69 @@ const IconSignOut = () => (
     <line x1="21" y1="12" x2="9" y2="12" />
   </svg>
 );
-const IconFileX = () => (
+const IconLink = () => (
+  <svg {...iconProps}>
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+  </svg>
+);
+const IconSearch = () => (
+  <svg {...iconProps}>
+    <circle cx="11" cy="11" r="8" />
+    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+  </svg>
+);
+const IconFile = () => (
   <svg {...iconProps}>
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
     <polyline points="14 2 14 8 20 8" />
-    <line x1="10" y1="13" x2="14" y2="17" />
-    <line x1="14" y1="13" x2="10" y2="17" />
+    <line x1="8" y1="13" x2="16" y2="13" />
+    <line x1="8" y1="17" x2="13" y2="17" />
   </svg>
 );
-const IconBook = () => (
+const IconInbox = () => (
   <svg {...iconProps}>
-    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+    <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+    <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
   </svg>
 );
-
 
 export default function MePage() {
+  // useSearchParams needs a Suspense boundary on a prerendered page.
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50 p-6 text-sm text-gray-500">Loading…</div>}>
+      <MeDashboard />
+    </Suspense>
+  );
+}
+
+function MeDashboard() {
+  const router = useRouter();
+  // Upwork redirects back here with ?upwork=<result> after the connect flow.
+  const upworkCallback = useSearchParams().get("upwork");
   const [accounts, setAccounts] = useState<AccountData[] | null>(null);
-  const [coverage, setCoverage] = useState<CoveragePayload | null>(null);
   const [notes, setNotes] = useState<NotesPayload | null>(null);
   const [weekStats, setWeekStats] = useState<{
     last7: { sent: number; viewed: number; interviewed: number; hired: number; viewRate: number; interviewRate: number; hireRate: number };
     prev7: { sent: number; viewed: number; interviewed: number; hired: number; viewRate: number; interviewRate: number; hireRate: number };
+    // Metrics with no data source ("viewed" | "hired") — shown as "—", never 0.
+    unavailable: string[];
   } | null>(null);
   const [showWeekCompare, setShowWeekCompare] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
-  const [activeTab, setActiveTab] = useState<MeTab>("overview");
+  const [activeTab, setActiveTab] = useState<MeTab>(upworkCallback ? "upwork" : "overview");
+  // The job a bidder picked in the Jobs tab to start a proposal for.
+  const [proposalSeed, setProposalSeed] = useState<ProposalSeed | null>(null);
   const [markingRead, setMarkingRead] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const accountsRef = useRef<AccountData[] | null>(null);
-  const selectedAccountIdRef = useRef<string>("all");
-
-  // Keep refs in sync with state so callbacks can read current values without
-  // being included in dependency arrays (which would cause infinite re-renders).
-  useEffect(() => { accountsRef.current = accounts; }, [accounts]);
-  useEffect(() => { selectedAccountIdRef.current = selectedAccountId; }, [selectedAccountId]);
-
-  const loadCoverage = useCallback(async (accountId?: string, accountsList?: AccountData[] | null) => {
-    let url = "/api/me/coverage";
-    const id = accountId ?? selectedAccountIdRef.current;
-    const list = accountsList ?? accountsRef.current;
-    if (id !== "all" && list) {
-      const account = list.find((a) => a.id === id);
-      if (account?.freelancerId) url += `?freelancerId=${encodeURIComponent(account.freelancerId)}`;
-    } else if (list?.length === 1 && list[0].freelancerId) {
-      url += `?freelancerId=${encodeURIComponent(list[0].freelancerId)}`;
-    }
-    const res = await fetch(url, { cache: "no-store" });
-    if (res.status === 401) {
-      window.location.href = "/me/login";
-      return;
-    }
-    if (res.ok) setCoverage(await res.json());
-  }, []);
-
   const loadAccounts = useCallback(async () => {
     const res = await fetch("/api/me/accounts", { cache: "no-store" });
     if (res.status === 401) {
       window.location.href = "/me/login";
       return;
     }
-    if (res.ok) {
-      const data = await res.json();
-      setAccounts(data);
-      // Reload coverage with the freshly loaded accounts list so the
-      // first render uses account-level coverage, not member-level.
-      loadCoverage(undefined, data);
-    }
-  }, [loadCoverage]);
+    if (res.ok) setAccounts(await res.json());
+  }, []);
 
   const loadNotes = useCallback(async () => {
     const res = await fetch("/api/me/notes", { cache: "no-store" });
@@ -156,13 +142,14 @@ export default function MePage() {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.windows) {
-          setWeekStats({ last7: data.windows.last7, prev7: data.windows.prev7 });
+          setWeekStats({ last7: data.windows.last7, prev7: data.windows.prev7, unavailable: data.unavailable ?? [] });
         }
       })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loads the bidder's data on mount (existing pattern)
     loadAccounts();
     loadNotes();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -171,21 +158,16 @@ export default function MePage() {
     loadStats(selectedAccountId);
   }, [selectedAccountId, loadStats]);
 
+  // Drop ?upwork=… from the address bar once the result has been picked up.
   useEffect(() => {
-    if (accounts) loadCoverage();
-  }, [selectedAccountId]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (upworkCallback) router.replace("/me");
+  }, [upworkCallback, router]);
 
-  useEffect(() => {
-    function tick() {
-      if (document.visibilityState === "visible") loadCoverage();
-    }
-    pollTimer.current = setInterval(tick, 15000);
-    document.addEventListener("visibilitychange", tick);
-    return () => {
-      if (pollTimer.current) clearInterval(pollTimer.current);
-      document.removeEventListener("visibilitychange", tick);
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Called by the new tabs after something changed that the Overview numbers depend on.
+  const refreshOverview = useCallback(() => {
+    loadAccounts();
+    loadStats(selectedAccountId);
+  }, [loadAccounts, loadStats, selectedAccountId]);
 
   async function markNoteRead(id: string) {
     setMarkingRead(id);
@@ -202,20 +184,12 @@ export default function MePage() {
     window.location.href = "/me/login";
   }
 
-  // TeamMember name comes from notes/coverage; accounts[*].name is the Upwork profile name.
-  const memberName = notes?.member.name || coverage?.member.name || "";
+  // TeamMember name comes from the notes payload; accounts[*].name is the Upwork profile name.
+  const memberName = notes?.member.name || "";
 
-  const myAccounts = useMemo(
-    () =>
-      (accounts ?? []).filter(
-        (a) =>
-          a.proposals.length > 0 ||
-          (((a.alertCounts?.messages ?? 0) +
-            (a.alertCounts?.invites ?? 0) +
-            (a.alertCounts?.offers ?? 0)) > 0),
-      ),
-    [accounts],
-  );
+  // /api/me/accounts already returns only this bidder's accounts; a newly connected
+  // account with no proposals yet still belongs on the page.
+  const myAccounts = useMemo(() => accounts ?? [], [accounts]);
 
   const scopedAccounts = useMemo(
     () =>
@@ -225,37 +199,19 @@ export default function MePage() {
     [myAccounts, selectedAccountId],
   );
 
-  const untrackedProposals = useMemo<ProposalData[]>(
-    () =>
-      scopedAccounts
-        .flatMap((a) => a.proposals)
-        .filter((p) => !p.submittedViaExtension && !p.coverLetter)
-        .sort((a, b) => new Date(b.submittedAt || b.createdAt).getTime() - new Date(a.submittedAt || a.createdAt).getTime()),
-    [scopedAccounts],
-  );
-
   const TABS: { id: MeTab; label: string; icon: React.ReactNode; count: number | null }[] = [
     { id: "overview", label: "Overview", icon: <IconHome />, count: null },
     { id: "profile", label: "Profile", icon: <IconUser />, count: null },
-    {
-      id: "coverage",
-      label: "Pages to open",
-      icon: <IconCompass />,
-      count: coverage?.totals.unvisited ?? null,
-    },
+    { id: "upwork", label: "Upwork connection", icon: <IconLink />, count: null },
+    { id: "jobs", label: "Find jobs", icon: <IconSearch />, count: null },
+    { id: "proposals", label: "My proposals", icon: <IconFile />, count: null },
+    { id: "replies", label: "Client replies", icon: <IconInbox />, count: null },
     {
       id: "notes",
       label: "Coaching notes",
       icon: <IconMessage />,
       count: notes?.unreadCount ?? null,
     },
-    {
-      id: "untracked",
-      label: "Unscanned Proposals",
-      icon: <IconFileX />,
-      count: untrackedProposals.length > 0 ? untrackedProposals.length : null,
-    },
-    { id: "guide", label: "Extension Guide", icon: <IconBook />, count: null },
   ];
   const activeTabLabel = TABS.find((t) => t.id === activeTab)?.label ?? "Overview";
 
@@ -298,7 +254,7 @@ export default function MePage() {
             );
           })}
         </nav>
-        {myAccounts.length > 0 && (
+        {myAccounts.length > 1 && (
           <div className="p-3 border-t border-gray-200">
             <label className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold px-1">
               Account
@@ -355,29 +311,6 @@ export default function MePage() {
           </div>
         </header>
 
-        <div className="flex flex-col gap-2 mx-4 lg:mx-6 mt-4 empty:hidden">
-          {coverage && coverage.coveragePct < 80 && (
-            <div className="px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-center gap-2">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 shrink-0">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                <line x1="12" y1="9" x2="12" y2="13"/>
-                <line x1="12" y1="17" x2="12.01" y2="17"/>
-              </svg>
-              Your page coverage is {coverage.coveragePct}% — open the required pages to stay on track.
-            </div>
-          )}
-          {untrackedProposals.length > 0 && (
-            <div className="px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-center gap-2">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 shrink-0">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                <line x1="12" y1="9" x2="12" y2="13"/>
-                <line x1="12" y1="17" x2="12.01" y2="17"/>
-              </svg>
-              You have {untrackedProposals.length} unscanned proposal{untrackedProposals.length !== 1 ? "s" : ""} — open them on Upwork with the extension active so cover letters and client details are captured.
-            </div>
-          )}
-        </div>
-
         <div className="flex-1 px-4 lg:px-6 pb-6 overflow-auto">
           {activeTab === "overview" &&
             (accounts === null ? (
@@ -414,6 +347,19 @@ export default function MePage() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {/* Main Volume Metrics */}
                           {(["sent", "viewed", "interviewed", "hired"] as const).map((key) => {
+                            if (weekStats.unavailable.includes(key)) {
+                              return (
+                                <div key={key} className="bg-white border border-gray-100 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
+                                  <span className="self-start px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border text-gray-500 bg-gray-50 border-gray-200">
+                                    {key}
+                                  </span>
+                                  <div className="flex flex-col">
+                                    <span className="text-2xl font-bold text-gray-400 leading-none">—</span>
+                                    <span className="text-[10px] text-gray-400 mt-1">unavailable</span>
+                                  </div>
+                                </div>
+                              );
+                            }
                             const curr = weekStats.last7[key];
                             const prev = weekStats.prev7[key];
                             const max = Math.max(curr, prev, 5);
@@ -472,6 +418,16 @@ export default function MePage() {
                         <div className="mt-4 grid grid-cols-3 gap-3">
                           {(["viewRate", "interviewRate", "hireRate"] as const).map((key) => {
                             const label = key === "viewRate" ? "View rate" : key === "interviewRate" ? "Interview rate" : "Hire rate";
+                            const source = key === "viewRate" ? "viewed" : key === "hireRate" ? "hired" : "";
+                            if (weekStats.unavailable.includes(source)) {
+                              return (
+                                <div key={key} className="rounded-xl border border-gray-100 bg-gray-50/50 p-3 flex flex-col items-center">
+                                  <div className="text-[9px] uppercase tracking-widest text-gray-400 font-bold mb-1">{label}</div>
+                                  <div className="text-lg font-bold text-gray-400">—</div>
+                                  <div className="text-[10px] text-gray-400 mt-0.5">unavailable</div>
+                                </div>
+                              );
+                            }
                             const curr = weekStats.last7[key];
                             const prev = weekStats.prev7[key];
                             const diff = Math.round((curr - prev) * 10) / 10;
@@ -514,71 +470,23 @@ export default function MePage() {
             </div>
           )}
 
-          {activeTab === "coverage" && (
-            <section className="mt-6 bg-white border border-gray-200 rounded-xl p-6">
-              <h2 className="text-lg font-semibold text-gray-900">
-                Pages to open to keep your stats accurate
-              </h2>
-              <p className="mt-1 text-sm text-gray-500">
-                Opening these pages updates your personal stats automatically.
-              </p>
+          {activeTab === "upwork" && <UpworkView callbackCode={upworkCallback} onChanged={refreshOverview} />}
 
-              {!coverage ? (
-                <div className="mt-4 text-sm text-gray-500">Loading…</div>
-              ) : (
-                <>
-                  {coverage.coveragePct < 80 && (
-                    <div className="mt-4 rounded-lg bg-yellow-50 border border-yellow-200 px-4 py-3 text-sm text-yellow-800">
-                      Your coverage is below 80%. Open the pages below to keep your stats accurate.
-                    </div>
-                  )}
-
-                  <div className="my-5">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-gray-500 uppercase tracking-wider">Coverage</span>
-                      <span className="text-gray-600">
-                        {coverage.totals.visited} / {coverage.totals.total}
-                      </span>
-                    </div>
-                    <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
-                      <div
-                        className="h-2 rounded-full bg-teal-500 transition-all"
-                        style={{ width: `${coverage.coveragePct}%` }}
-                      />
-                    </div>
-                    <div className="mt-1.5 text-right text-sm font-semibold text-gray-900">
-                      {coverage.coveragePct}%
-                    </div>
-                  </div>
-
-                  {coverage.unvisited.length === 0 ? (
-                    <div className="rounded-lg bg-green-50 border border-green-100 p-4 text-sm text-green-700 text-center">
-                      You&apos;re all caught up.
-                    </div>
-                  ) : (
-                    <ul className="space-y-2">
-                      {coverage.unvisited.map((page) => (
-                        <li
-                          key={page.id}
-                          className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 text-sm"
-                        >
-                          <span className="font-medium text-gray-700">{page.name}</span>
-                          <a
-                            href={page.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="shrink-0 px-3 py-1.5 bg-teal-500 hover:bg-teal-600 text-white text-xs font-medium rounded-lg transition-colors shadow-sm"
-                          >
-                            Open on Upwork
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
-            </section>
+          {activeTab === "jobs" && (
+            <JobsView
+              onGoToUpwork={() => setActiveTab("upwork")}
+              onStartProposal={(seed) => {
+                setProposalSeed(seed);
+                setActiveTab("proposals");
+              }}
+            />
           )}
+
+          {activeTab === "proposals" && (
+            <ProposalsView seed={proposalSeed} onSeedUsed={() => setProposalSeed(null)} onChanged={refreshOverview} />
+          )}
+
+          {activeTab === "replies" && <RepliesView onChanged={refreshOverview} />}
 
           {activeTab === "notes" && (
             <section className="mt-6 bg-white border border-gray-200 rounded-xl p-6">
@@ -653,60 +561,6 @@ export default function MePage() {
             </section>
           )}
 
-          {activeTab === "guide" && <GuideView />}
-
-          {activeTab === "untracked" && (
-            <section className="mt-6">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h2 className="text-base font-semibold text-gray-900">Unscanned Proposals</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    Proposals synced from your Upwork list but not captured by the extension at submission time — cover letter and client details may be missing.
-                  </p>
-                </div>
-                <span className="text-xs text-gray-400">{untrackedProposals.length} total</span>
-              </div>
-
-              {untrackedProposals.length === 0 ? (
-                <div className="bg-white border border-gray-200 rounded-xl py-16 text-center text-gray-400 text-sm">
-                  All your proposals were scanned via the extension
-                </div>
-              ) : (
-                <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-200 bg-gray-50">
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Job Title</th>
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Section</th>
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Profile</th>
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase tracking-wide">Submitted</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {untrackedProposals.map((p) => (
-                        <tr key={p.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-3 max-w-md">
-                            {p.jobUrl ? (
-                              <a href={p.jobUrl} target="_blank" rel="noopener noreferrer" className="text-teal-600 font-medium hover:underline truncate block">
-                                {p.jobTitle || "Untitled"}
-                              </a>
-                            ) : (
-                              <span className="text-gray-700 font-medium truncate block">{p.jobTitle || "Untitled"}</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-xs text-gray-500">{p.section || "—"}</td>
-                          <td className="px-4 py-3 text-xs text-gray-500">{p.profileUsed || "—"}</td>
-                          <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
-                            {new Date(p.submittedAt || p.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-          )}
         </div>
       </main>
 
